@@ -1,0 +1,32 @@
+# Ignore Python cache and artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.env
+.env
+venv/
+ENV/
+*.egg-info/
+*.egg
+*.sqlite3
+*.db
+
+# Ignore test files
+*.ipynb_checkpoints
+*.log
+*.bak
+*.tmp
+
+# Ignore node modules and frontend build
+node_modules/
+frontend/dist/
+frontend/build/
+
+# Ignore OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Ignore Dockerfile itself (optional)
+Dockerfile

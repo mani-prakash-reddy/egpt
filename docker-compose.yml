@@ -1,0 +1,74 @@
+name: enterprise_gpt
+services:
+    backend:
+        build: backend
+        container_name: backend
+        env_file:
+            - backend/.env
+        environment:
+            - PG_VECTOR_DB=postgresql://postgres:password@database:5432/enterprise_gpt
+            - OLLAMA_BASE_URL=http://host.docker.internal:11434
+        ports:
+            - "8000:8000"
+        expose:
+            8000
+        volumes:
+            - ./backend:/app
+        restart: unless-stopped
+        depends_on:
+            database:
+                condition: service_healthy
+        networks:
+            - gpt-bridge
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+
+    database:
+        image: pgvector/pgvector:pg17
+        container_name: enterprise_gpt_db
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: password
+            POSTGRES_DB: enterprise_gpt
+        ports:
+            - "5432:5432"
+        expose:
+            - 5432
+        volumes:
+            - vector_db_data:/var/lib/postgresql/data
+        restart: unless-stopped
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U postgres"]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+        networks:
+            - gpt-bridge
+
+    nginx:
+        image: nginx:latest
+        container_name: nginx
+        ports:
+            - "80:80"
+            - "443:443"
+        volumes:
+            - ./nginx.conf:/etc/nginx/nginx.conf
+            - ./frontend/dist:/usr/share/nginx/html
+        depends_on:
+            - backend
+        restart: unless-stopped
+        healthcheck:
+            test: ["CMD", "nginx", "-t"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+        networks:
+            - gpt-bridge
+
+volumes:
+    vector_db_data:
+        driver: local
+
+networks:
+    gpt-bridge:
+        driver: bridge
