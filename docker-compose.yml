@@ -11,7 +11,7 @@ services:
         ports:
             - "8000:8000"
         expose:
-            8000
+            - 8000
         volumes:
             - ./backend:/app
         restart: unless-stopped

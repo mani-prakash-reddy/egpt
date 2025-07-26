@@ -13,6 +13,8 @@ langchain-community
 langchain-experimental
 langchain
 pgvector
-sentence-transformers
 chromadb
 duckduckgo-search
+pyjwt
+passlib[bcrypt]
+ollama
