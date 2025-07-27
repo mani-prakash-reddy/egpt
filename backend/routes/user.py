@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 # openssl rand -hex 32
 SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 2 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 3
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -130,7 +130,7 @@ async def signup(user: UserCreate, db: Session = Depends(get_db)):
         hashed_password=hashed_password,
         is_active=True,
         is_admin=False,
-        organization_id=None,  # You may want to handle organization assignment
+        organization_id=None,  # Individual users don't belong to an organization
     )
     db.add(new_user)
     db.commit()

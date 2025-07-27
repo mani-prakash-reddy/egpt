@@ -20,6 +20,7 @@ class ChatService:
         self.llm_providers = llm_providers
         self.tools = tools
         self.available_models = {}
+        self._last_conversation_id = None  # Track last created conversation
         # Initialize available models for each provider
         for name, provider_class in llm_providers.items():
             try:
@@ -31,11 +32,26 @@ class ChatService:
 
     def get_available_models(self) -> dict:
         """Return a dictionary of available models for each provider"""
+        print("Available models:", self.available_models)
         return self.available_models
 
     def get_available_tools(self) -> List[str]:
         """Return a list of available tools"""
         return list(self.tools.keys())
+
+    def get_last_conversation_id(self) -> Optional[str]:
+        """Return the last created conversation ID"""
+        return self._last_conversation_id
+
+    def generate_conversation_title(self, prompt: str) -> str:
+        """Generate a meaningful conversation title from the first user message"""
+        # Take first 50 characters and clean up
+        title = prompt.strip()[:50]
+        if len(prompt) > 50:
+            title += "..."
+        # Remove newlines and extra spaces
+        title = " ".join(title.split())
+        return title if title else "New Conversation"
 
     def parse_model_string(self, model_string: str) -> tuple[str, str]:
         """Parse model string format 'provider/model_name' into provider and model"""
@@ -123,9 +139,15 @@ class ChatService:
     ) -> Conversation:
         """Create a new conversation"""
         try:
+            # Get user to determine organization_id
+            from database.db_models import User
+
+            user = db.query(User).filter(User.id == user_id).first()
+            organization_id = user.organization_id if user else None
+
             conversation = Conversation(
                 user_id=user_id,
-                organization_id=None,  # You may want to set this based on user's organization
+                organization_id=organization_id,  # Use user's organization or None for individual users
                 title=title or "New Conversation",
             )
             db.add(conversation)
@@ -136,6 +158,68 @@ class ChatService:
             print(f"Error creating conversation: {e}")
             db.rollback()
             raise
+
+    def delete_conversation(
+        self, db: Session, conversation_id: str, user_id: str
+    ) -> bool:
+        """Delete a conversation and all its messages. Returns True if successful, False if not found or access denied."""
+        try:
+            # Get conversation and verify it belongs to the user
+            conversation = (
+                db.query(Conversation)
+                .filter(
+                    Conversation.id == conversation_id, Conversation.user_id == user_id
+                )
+                .first()
+            )
+
+            if not conversation:
+                return False
+
+            # Delete all messages in the conversation first
+            db.query(Message).filter(
+                Message.conversation_id == conversation_id
+            ).delete()
+
+            # Delete the conversation
+            db.delete(conversation)
+            db.commit()
+
+            return True
+        except Exception as e:
+            print(f"Error deleting conversation: {e}")
+            db.rollback()
+            raise
+
+    def get_user_conversations(
+        self, db: Session, user_id: str, limit: int = 50, offset: int = 0
+    ) -> List[Dict]:
+        """Get all conversations for a user with pagination"""
+        try:
+            conversations = (
+                db.query(Conversation)
+                .filter(Conversation.user_id == user_id)
+                .order_by(Conversation.updated_at.desc())
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+
+            result = []
+            for conv in conversations:
+                result.append(
+                    {
+                        "conversation_id": str(conv.id),
+                        "title": conv.title,
+                        "created_at": conv.created_at,
+                        "updated_at": conv.updated_at,
+                    }
+                )
+
+            return result
+        except Exception as e:
+            print(f"Error retrieving user conversations: {e}")
+            return []
 
     async def generate_response_stream(
         self,
@@ -150,7 +234,7 @@ class ChatService:
         try:
             # Parse model string
             provider_name, model_name = self.parse_model_string(model_string)
-
+            print(f"provider--- `{provider_name}`  model--- `{model_name}`")
             # Get provider instance with tools
             provider = self.get_provider_instance(provider_name, model_name, tool_names)
 
@@ -158,8 +242,16 @@ class ChatService:
             conversation_history = []
             if conversation_id:
                 conversation_history = self.get_chat_history(db, conversation_id)
+            elif user_id:
+                # Create a new conversation with a meaningful title based on the prompt
+                title = self.generate_conversation_title(prompt)
+                conversation = self.create_conversation(
+                    db, user_id=user_id, title=title
+                )
+                conversation_id = str(conversation.id)
+                self._last_conversation_id = conversation_id
 
-            # Save user message if conversation_id provided
+            # Save user message if conversation_id is available
             if conversation_id:
                 self.save_message(db, conversation_id, "user", prompt)
 
@@ -173,7 +265,7 @@ class ChatService:
                 full_response += chunk
                 yield chunk
 
-            # Save assistant response if conversation_id provided
+            # Save assistant response if conversation_id is available and we have a response
             if conversation_id and full_response:
                 self.save_message(db, conversation_id, "assistant", full_response)
 

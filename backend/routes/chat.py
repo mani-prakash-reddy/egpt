@@ -28,13 +28,17 @@ class ChatResponse(BaseModel):
 
 
 @router.get("/models")
-async def get_available_models():
+async def get_available_models(
+    current_user: User = Depends(get_current_active_user),
+):
     """Get all available models from all providers"""
     return chat_service.get_available_models()
 
 
 @router.get("/tools")
-async def get_available_tools():
+async def get_available_tools(
+    current_user: User = Depends(get_current_active_user),
+):
     """Get all available tools"""
     return {"tools": chat_service.get_available_tools()}
 
@@ -47,63 +51,65 @@ async def chat_stream(
 ):
     """Stream chat response with conversation history and tool support"""
     try:
-        # Create new conversation if none provided
+        # Use existing conversation or None (will be created when first message is saved)
         conversation_id = request.conversation_id
-        if not conversation_id:
-            conversation = chat_service.create_conversation(
-                db, user_id=str(current_user.id), title=f"Chat with {request.model}"
-            )
-            conversation_id = str(conversation.id)
 
-        return StreamingResponse(
-            chat_service.generate_response_stream(
+        async def generate_with_headers():
+            async for chunk in chat_service.generate_response_stream(
                 db=db,
                 prompt=request.prompt,
                 model_string=request.model,
                 conversation_id=conversation_id,
                 tool_names=request.tools,
                 user_id=str(current_user.id),
-            ),
-            media_type="text/plain",
-            headers={"X-Conversation-ID": conversation_id},
+            ):
+                yield chunk
+
+        # Get the conversation ID after potential creation
+        final_conversation_id = (
+            conversation_id or chat_service.get_last_conversation_id() or "none"
+        )
+
+        return StreamingResponse(
+            generate_with_headers(),
+            media_type="text/stream",
+            headers={"X-Conversation-ID": final_conversation_id},
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(
-    request: ChatRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-    """Non-streaming chat response"""
-    try:
-        # Create new conversation if none provided
-        conversation_id = request.conversation_id
-        if not conversation_id:
-            conversation = chat_service.create_conversation(
-                db, user_id=str(current_user.id), title=f"Chat with {request.model}"
-            )
-            conversation_id = str(conversation.id)
+# @router.post("/chat", response_model=ChatResponse)
+# async def chat(
+#     request: ChatRequest,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_active_user),
+# ):
+#     """Non-streaming chat response"""
+#     try:
+#         # Use existing conversation or None (will be created when first message is saved)
+#         conversation_id = request.conversation_id
 
-        response = await chat_service.generate_response(
-            db=db,
-            prompt=request.prompt,
-            model_string=request.model,
-            conversation_id=conversation_id,
-            tool_names=request.tools,
-            user_id=str(current_user.id),
-        )
+#         response = await chat_service.generate_response(
+#             db=db,
+#             prompt=request.prompt,
+#             model_string=request.model,
+#             conversation_id=conversation_id,
+#             tool_names=request.tools,
+#             user_id=str(current_user.id),
+#         )
 
-        return ChatResponse(
-            response=response,
-            conversation_id=conversation_id,
-            model=request.model,
-            tools_used=request.tools,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#         # Get the actual conversation_id after potential creation
+#         actual_conversation_id = chat_service.get_last_conversation_id()
+
+#         return ChatResponse(
+#             response=response,
+#             conversation_id=actual_conversation_id or conversation_id,
+#             model=request.model,
+#             tools_used=request.tools,
+#         )
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/conversations/{conversation_id}/history")
@@ -119,22 +125,48 @@ async def get_conversation_history(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.post("/conversations")
-async def create_conversation(
-    title: Optional[str] = None,
+@router.get("/conversations")
+async def get_user_conversations(
+    limit: int = 50,
+    offset: int = 0,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Create a new conversation"""
+    """Get all conversations for the current user"""
     try:
-        conversation = chat_service.create_conversation(
-            db, user_id=str(current_user.id), title=title or "New Conversation"
+        conversations = chat_service.get_user_conversations(
+            db, user_id=str(current_user.id), limit=limit, offset=offset
         )
         return {
-            "conversation_id": str(conversation.id),
-            "title": conversation.title,
-            "created_at": conversation.created_at,
+            "conversations": conversations,
+            "total": len(conversations),
+            "limit": limit,
+            "offset": offset,
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Delete a conversation and all its messages"""
+    try:
+        result = chat_service.delete_conversation(
+            db, conversation_id=conversation_id, user_id=str(current_user.id)
+        )
+        if result:
+            return {
+                "message": "Conversation deleted successfully",
+                "conversation_id": conversation_id,
+            }
+        else:
+            raise HTTPException(
+                status_code=404, detail="Conversation not found or access denied"
+            )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

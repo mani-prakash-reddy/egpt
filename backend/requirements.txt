@@ -9,6 +9,7 @@ pydantic
 psycopg2-binary
 psycopg2
 langchain-openai
+langchain_ollama
 langchain-community
 langchain-experimental
 langchain
@@ -17,4 +18,5 @@ chromadb
 duckduckgo-search
 pyjwt
 passlib[bcrypt]
+bcrypt==4.0.1
 ollama

@@ -1,4 +1,4 @@
-name: enterprise_gpt
+name: gpt
 services:
     backend:
         build: backend
@@ -25,7 +25,7 @@ services:
 
     database:
         image: pgvector/pgvector:pg17
-        container_name: enterprise_gpt_db
+        container_name: gpt_db
         environment:
             POSTGRES_USER: postgres
             POSTGRES_PASSWORD: password
