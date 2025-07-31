@@ -102,8 +102,13 @@ export class ApiService {
 	// Chat endpoints
 
 	// GET /api/v1/models
-	static async getModels() {
+	static async getAvailableModels() {
 		return this.request("/models");
+	}
+
+	// GET /api/v1/models (alias for compatibility)
+	static async getModels() {
+		return this.getAvailableModels();
 	}
 
 	// GET /api/v1/tools
@@ -117,7 +122,7 @@ export class ApiService {
 		const config = {
 			method: "POST",
 			headers: {
-				"Content-Type": "text/stream",
+				"Content-Type": "application/json",
 				...this.getAuthHeaders(),
 			},
 			body: JSON.stringify(chatData),
@@ -138,9 +143,14 @@ export class ApiService {
 	// Additional conversation management methods
 
 	// GET /api/v1/conversations?limit&offset
-	static async getConversations({ limit = 50, offset = 0 } = {}) {
-		const params = new URLSearchParams({ limit, offset });
+	static async getUserConversations({ limit = 50, offset = 0 } = {}) {
+		const params = new URLSearchParams({ limit: limit.toString(), offset: offset.toString() });
 		return this.request(`/conversations?${params.toString()}`);
+	}
+
+	// GET /api/v1/conversations?limit&offset (alias for compatibility)
+	static async getConversations({ limit = 50, offset = 0 } = {}) {
+		return this.getUserConversations({ limit, offset });
 	}
 
 	// DELETE /api/v1/conversations/{conversation_id}
