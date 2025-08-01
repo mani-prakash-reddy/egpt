@@ -1,13 +1,14 @@
-name: gpt
+name: egpt
 services:
     backend:
         build: backend
         container_name: backend
-        env_file:
-            - backend/.env
+        # env_file:
+        #     - backend/.env
         environment:
             - PG_VECTOR_DB=postgresql://postgres:password@database:5432/enterprise_gpt
-            - OLLAMA_BASE_URL=http://host.docker.internal:11434
+            - OPENAI_API_KEY=sk-1234
+            - OPENAI_API_BASE=http://litellm:4000/
         ports:
             - "8000:8000"
         expose:
@@ -22,6 +23,30 @@ services:
             - gpt-bridge
         extra_hosts:
             - "host.docker.internal:host-gateway"
+
+    litellm:
+        image: ghcr.io/berriai/litellm:main-latest
+        container_name: litellm
+        env_file:
+          - .env
+        expose:
+            - 4000
+        ports:
+            - "4000:4000"
+        volumes:
+          - ./litellm_config.yaml:/app/config.yaml
+        command: --config /app/config.yaml --port 4000
+        restart: unless-stopped
+        depends_on:
+            database:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+        networks:
+            - gpt-bridge
 
     database:
         image: pgvector/pgvector:pg17

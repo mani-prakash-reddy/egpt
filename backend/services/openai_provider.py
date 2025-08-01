@@ -3,6 +3,7 @@ import dotenv
 from typing import Optional, Dict, List, AsyncGenerator
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage, SystemMessage
+from openai import OpenAI
 import json
 
 
@@ -15,6 +16,7 @@ class OpenAIProvider:
     ):
         dotenv.load_dotenv()
         self.api_key = os.getenv("OPENAI_API_KEY")
+        self.api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is not set.")
         self.model_name = model_name
@@ -24,16 +26,19 @@ class OpenAIProvider:
             model=self.model_name,
             temperature=self.temperature,
             streaming=True,  # Enable streaming
+            base_url=self.api_base,
+            api_key=self.api_key,
         )
         self.init_tools()
+
     def get_available_models(self) -> List[str]:
         """Return a list of available models"""
-        return [
-			"gpt-3.5-turbo",
-			"gpt-4",
-			"gpt-4o-mini",
-			"gpt-4o",
-		]
+        client = OpenAI(api_key=self.api_key, base_url=self.api_base)
+        models = client.models.list()
+        models_list = []
+        for model in models:
+            models_list.append(model.id)
+        return models_list
 
     def init_tools(self):
         if self.tools and self.llm:

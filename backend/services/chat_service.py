@@ -3,17 +3,14 @@ from sqlalchemy.orm import Session
 from database.db_models import Conversation, Message
 from tools import web_search
 
-from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 
 llm_providers = {
-    "openai": OpenAIProvider,
-    "ollama": OllamaProvider,
+    "E Gpt": OpenAIProvider,
 }
 tools = {
     "web_search": web_search,
 }
-
 
 class ChatService:
     def __init__(self, llm_providers: dict = llm_providers):
