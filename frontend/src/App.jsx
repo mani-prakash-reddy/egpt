@@ -2,7 +2,6 @@ import React from "react";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import AuthForm from "@/components/AuthForm";
 import MainLayout from "@/components/MainLayout";
-import ChatInterface from "@/components/ChatInterface";
 import "./App.css";
 
 function AppContent() {
@@ -24,9 +23,7 @@ function AppContent() {
 	}
 
 	return (
-		<MainLayout>
-			<ChatInterface />
-		</MainLayout>
+		<MainLayout/>
 	);
 }
 

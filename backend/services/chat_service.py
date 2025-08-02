@@ -12,25 +12,24 @@ tools = {
     "web_search": web_search,
 }
 
+
 class ChatService:
     def __init__(self, llm_providers: dict = llm_providers):
         self.llm_providers = llm_providers
         self.tools = tools
-        self.available_models = {}
         self._last_conversation_id = None  # Track last created conversation
-        # Initialize available models for each provider
-        for name, provider_class in llm_providers.items():
-            try:
-                temp_provider = provider_class()
-                self.available_models[name] = temp_provider.get_available_models()
-            except Exception as e:
-                print(f"Warning: Could not initialize {name} provider: {e}")
-                self.available_models[name] = []
 
     def get_available_models(self) -> dict:
         """Return a dictionary of available models for each provider"""
-        print("Available models:", self.available_models)
-        return self.available_models
+        available_models = {}
+        for name, provider_class in self.llm_providers.items():
+            try:
+                provider_instance = provider_class()
+                available_models[name] = provider_instance.get_available_models()
+            except Exception as e:
+                print(f"Warning: Could not get models for {name} provider: {e}")
+                available_models[name] = []
+        return available_models
 
     def get_available_tools(self) -> List[str]:
         """Return a list of available tools"""
