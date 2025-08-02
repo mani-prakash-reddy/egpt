@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import Header from "@/components/Header";
-import Sidebar from "@/components/Sidebar";
-import ChatErrorBoundary from "@/components/ChatErrorBoundary";
+import { SidebarProvider, Sidebar, SidebarInset } from "@/components/ui/sidebar";
+import ChatSidebar from "@/components/ChatSidebar";
+import ChatHeader from "@/components/ChatHeader";
+import ChatCanvas from "@/components/ChatCanvas";
 
-const MainLayout = ({ children }) => {
+const MainLayout = () => {
 	const [selectedModel, setSelectedModel] = useState("");
 	const [currentConversationId, setCurrentConversationId] = useState(null);
 	const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -27,33 +28,33 @@ const MainLayout = ({ children }) => {
 	};
 
 	return (
-		<div className="flex h-screen bg-gray-50 dark:bg-zinc-950">
-			{/* Sidebar */}
-			<Sidebar
-				onNewChat={handleNewChat}
-				onSelectConversation={handleSelectConversation}
-				currentConversationId={currentConversationId}
-				refreshTrigger={refreshTrigger}
-			/>
+		<SidebarProvider>
+			<div className="flex h-screen w-full bg-neutral-900 text-white">
+				<Sidebar>
+					<ChatSidebar
+						onNewChat={handleNewChat}
+						onSelectConversation={handleSelectConversation}
+						currentConversationId={currentConversationId}
+						refreshTrigger={refreshTrigger}
+					/>
+				</Sidebar>
 
-			{/* Main Content Area */}
-			<div className="flex-1 flex flex-col overflow-hidden">
-				{/* Header */}
-				<Header selectedModel={selectedModel} onModelChange={handleModelChange} />
-
-				{/* Main Content */}
-				<main className="flex-1 overflow-hidden">
-					<ChatErrorBoundary>
-						{React.cloneElement(children, {
-							selectedModel,
-							currentConversationId,
-							onNewChat: handleNewChat,
-							onSelectConversation: handleSelectConversation,
-						})}
-					</ChatErrorBoundary>
-				</main>
+				<SidebarInset>
+					<div className="flex h-full flex-col">
+						<ChatHeader
+							selectedModel={selectedModel}
+							onModelChange={handleModelChange}
+						/>
+						<ChatCanvas
+							selectedModel={selectedModel}
+							currentConversationId={currentConversationId}
+							onNewChat={handleNewChat}
+							onSelectConversation={handleSelectConversation}
+						/>
+					</div>
+				</SidebarInset>
 			</div>
-		</div>
+		</SidebarProvider>
 	);
 };
 

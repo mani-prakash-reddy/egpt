@@ -2,17 +2,20 @@ import React, { useState, useEffect, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { MessageSquare, Zap, Globe, Send, User, Bot, Settings, Loader2 } from "lucide-react";
+import {
+	MessageSquare,
+	Zap,
+	Globe,
+	Send,
+	User,
+	Bot,
+	Settings,
+	Loader2,
+	StopCircle,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -22,12 +25,7 @@ import { v4 as uuidv4 } from "uuid";
 // Import highlight.js styles
 import "highlight.js/styles/github-dark.css";
 
-const ChatInterface = ({
-	selectedModel,
-	currentConversationId,
-	onNewChat,
-	onSelectConversation,
-}) => {
+const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectConversation }) => {
 	const [messages, setMessages] = useState([]);
 	const [inputMessage, setInputMessage] = useState("");
 	const [selectedTools, setSelectedTools] = useState([]);
@@ -68,13 +66,14 @@ const ChatInterface = ({
 			let toolsList = [];
 			if (Array.isArray(response)) {
 				toolsList = response;
-			} else if (response.tools && Array.isArray(response.tools)) {
+			} else if (response && Array.isArray(response.tools)) {
 				toolsList = response.tools;
-			} else if (typeof response === "object") {
-				toolsList = Object.values(response).flat();
+			} else {
+				console.warn("Unexpected tools response format:", response);
+				toolsList = [];
 			}
 
-			setAvailableTools(toolsList || []);
+			setAvailableTools(toolsList);
 		} catch (error) {
 			console.error("Failed to load tools:", error);
 			setAvailableTools([]);
@@ -89,22 +88,26 @@ const ChatInterface = ({
 			const response = await ApiService.getConversationHistory(conversationId);
 
 			// Handle different response formats
-			let messagesList = [];
+			let historyMessages = [];
 			if (Array.isArray(response)) {
-				messagesList = response;
-			} else if (response.history && Array.isArray(response.history)) {
-				// Convert history format to messages format
-				messagesList = response.history.map((msg, index) => ({
-					id: `${conversationId}-${index}`,
-					role: msg.role,
-					content: msg.content,
-					timestamp: new Date().toISOString(), // API doesn't provide timestamp in history
-				}));
-			} else if (response.messages && Array.isArray(response.messages)) {
-				messagesList = response.messages;
+				historyMessages = response;
+			} else if (response && Array.isArray(response.history)) {
+				historyMessages = response.history;
+			} else {
+				console.warn("Unexpected history response format:", response);
+				historyMessages = [];
 			}
 
-			setMessages(messagesList || []);
+			// Transform messages to match our format
+			const transformedMessages = historyMessages.map((msg) => ({
+				id: msg.id || uuidv4(),
+				role: msg.role,
+				content: msg.content,
+				timestamp: msg.timestamp || new Date().toISOString(),
+				model: msg.model,
+			}));
+
+			setMessages(transformedMessages);
 		} catch (error) {
 			console.error("Failed to load conversation history:", error);
 			setMessages([]);
@@ -116,7 +119,7 @@ const ChatInterface = ({
 	const handleSendMessage = async (e) => {
 		e.preventDefault();
 
-		if (!inputMessage.trim() || isStreaming || !selectedModel) {
+		if (!inputMessage.trim() || !selectedModel || isStreaming) {
 			return;
 		}
 
@@ -133,37 +136,45 @@ const ChatInterface = ({
 			content: "",
 			timestamp: new Date().toISOString(),
 			isStreaming: true,
+			model: selectedModel,
 		};
 
 		setMessages((prev) => [...prev, userMessage, assistantMessage]);
 		setInputMessage("");
 		setIsStreaming(true);
 
-		try {
-			// Create abort controller for canceling the stream
-			abortControllerRef.current = new AbortController();
+		// Create a new AbortController for this request
+		abortControllerRef.current = new AbortController();
 
+		try {
 			const chatData = {
 				prompt: userMessage.content,
-				model: selectedModel.replace(":", "/"), // Convert colon to forward slash for API
-				conversation_id: currentConversationId || undefined,
+				model: selectedModel,
+				conversation_id: currentConversationId,
 				tools: selectedTools.length > 0 ? selectedTools : undefined,
 			};
 
 			const response = await ApiService.chatStream(chatData);
 
-			if (!response.ok) {
-				throw new Error(`HTTP error! status: ${response.status}`);
+			// Get conversation ID from headers if this is a new conversation
+			const conversationIdFromResponse = response.headers.get("X-Conversation-ID");
+			if (conversationIdFromResponse && !currentConversationId) {
+				onSelectConversation(conversationIdFromResponse);
 			}
 
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
-			let accumulatedContent = "";
+
+			let streamedContent = "";
 
 			while (true) {
 				const { done, value } = await reader.read();
 
 				if (done) break;
+
+				if (abortControllerRef.current?.signal.aborted) {
+					break;
+				}
 
 				const chunk = decoder.decode(value);
 				const lines = chunk.split("\n");
@@ -171,49 +182,58 @@ const ChatInterface = ({
 				for (const line of lines) {
 					if (line.startsWith("data: ")) {
 						const data = line.slice(6);
-
 						if (data === "[DONE]") {
-							continue;
+							break;
 						}
 
 						try {
 							const parsed = JSON.parse(data);
-
 							if (parsed.content) {
-								accumulatedContent += parsed.content;
+								streamedContent += parsed.content;
 
 								setMessages((prev) =>
 									prev.map((msg) =>
 										msg.id === assistantMessage.id
-											? {
-													...msg,
-													content: accumulatedContent,
-													isStreaming: true,
-											  }
+											? { ...msg, content: streamedContent }
 											: msg
 									)
 								);
 							}
+						} catch (err) {
+							// Handle non-JSON chunks (plain text streaming)
+							if (data.trim()) {
+								streamedContent += data;
 
-							// Handle conversation_id for new conversations
-							if (parsed.conversation_id && !currentConversationId) {
-								onSelectConversation(parsed.conversation_id);
+								setMessages((prev) =>
+									prev.map((msg) =>
+										msg.id === assistantMessage.id
+											? { ...msg, content: streamedContent }
+											: msg
+									)
+								);
 							}
-						} catch (parseError) {
-							console.warn("Failed to parse streaming data:", parseError);
 						}
 					}
 				}
 			}
-		} catch (error) {
-			console.error("Streaming error:", error);
 
+			// Mark streaming as complete
+			setMessages((prev) =>
+				prev.map((msg) =>
+					msg.id === assistantMessage.id ? { ...msg, isStreaming: false } : msg
+				)
+			);
+		} catch (error) {
+			console.error("Failed to send message:", error);
+
+			// Update the assistant message to show error
 			setMessages((prev) =>
 				prev.map((msg) =>
 					msg.id === assistantMessage.id
 						? {
 								...msg,
 								content: `Error: ${error.message || "Failed to get response"}`,
+								isStreaming: false,
 								isError: true,
 						  }
 						: msg
@@ -221,44 +241,64 @@ const ChatInterface = ({
 			);
 		} finally {
 			setIsStreaming(false);
-			setMessages((prev) =>
-				prev.map((msg) =>
-					msg.id === assistantMessage.id ? { ...msg, isStreaming: false } : msg
-				)
-			);
 			abortControllerRef.current = null;
 		}
 	};
 
-	const handleToolToggle = (toolId) => {
-		setSelectedTools((prev) =>
-			prev.includes(toolId) ? prev.filter((id) => id !== toolId) : [...prev, toolId]
-		);
+	const handleStopStreaming = () => {
+		if (abortControllerRef.current) {
+			abortControllerRef.current.abort();
+			setIsStreaming(false);
+
+			// Mark the last assistant message as complete
+			setMessages((prev) =>
+				prev.map((msg, index) => {
+					if (index === prev.length - 1 && msg.role === "assistant" && msg.isStreaming) {
+						return { ...msg, isStreaming: false };
+					}
+					return msg;
+				})
+			);
+		}
+	};
+
+	const handleToolToggle = (toolName) => {
+		setSelectedTools((prev) => {
+			if (prev.includes(toolName)) {
+				return prev.filter((t) => t !== toolName);
+			} else {
+				return [...prev, toolName];
+			}
+		});
 	};
 
 	const getToolDisplayName = (tool) => {
 		if (typeof tool === "string") return tool;
-		return tool.name || tool.id || tool;
+		return tool.display_name || tool.name || tool.id || "Unknown Tool";
 	};
 
 	const getToolValue = (tool) => {
 		if (typeof tool === "string") return tool;
-		return tool.id || tool.name || tool;
+		return tool.name || tool.id || tool.display_name;
 	};
 
 	const formatTimestamp = (timestamp) => {
-		return new Date(timestamp).toLocaleTimeString([], {
-			hour: "2-digit",
-			minute: "2-digit",
-		});
+		try {
+			return new Date(timestamp).toLocaleTimeString([], {
+				hour: "2-digit",
+				minute: "2-digit",
+			});
+		} catch {
+			return "";
+		}
 	};
 
 	const getModelDisplayName = () => {
-		if (!selectedModel) return "";
+		if (!selectedModel) return "No model selected";
 
-		// If selectedModel contains ":", split it and show provider - model
-		if (selectedModel.includes(":")) {
-			const [provider, model] = selectedModel.split(":");
+		// If selectedModel contains "/", split it and show provider - model
+		if (selectedModel.includes("/")) {
+			const [provider, model] = selectedModel.split("/");
 			return `${provider.charAt(0).toUpperCase() + provider.slice(1)} - ${model}`;
 		}
 
@@ -373,7 +413,7 @@ const ChatInterface = ({
 													? "bg-blue-500 text-white"
 													: message.isError
 													? "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
-													: "bg-gray-100 dark:bg-gray-800"
+													: "bg-neutral-100 dark:bg-neutral-800"
 											}`}>
 											{message.role === "user" ? (
 												<p className="text-sm">{message.content}</p>
@@ -383,7 +423,7 @@ const ChatInterface = ({
 														// Simple text display during streaming
 														<div>
 															{message.content}
-															<span className="inline-block w-2 h-4 bg-gray-400 animate-pulse ml-1" />
+															<span className="inline-block w-2 h-4 bg-neutral-400 animate-pulse ml-1" />
 														</div>
 													) : (
 														// Use ReactMarkdown only when streaming is complete
@@ -414,7 +454,7 @@ const ChatInterface = ({
 																		</pre>
 																	) : (
 																		<code
-																			className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded text-sm"
+																			className="bg-neutral-200 dark:bg-neutral-700 px-1 py-0.5 rounded text-sm"
 																			{...props}>
 																			{children}
 																		</code>
@@ -434,7 +474,7 @@ const ChatInterface = ({
 
 										{message.role === "user" && (
 											<div className="flex-shrink-0">
-												<div className="w-8 h-8 rounded-full bg-gray-500 flex items-center justify-center">
+												<div className="w-8 h-8 rounded-full bg-neutral-500 flex items-center justify-center">
 													<User className="h-4 w-4 text-white" />
 												</div>
 											</div>
@@ -451,7 +491,7 @@ const ChatInterface = ({
 			<Separator />
 
 			{/* Input Area */}
-			<div className="p-4 bg-white dark:dark:bg-zinc-950">
+			<div className="p-4 bg-white dark:bg-neutral-900">
 				{/* Tools Selection */}
 				{availableTools.length > 0 && (
 					<div className="mb-4">
@@ -470,7 +510,7 @@ const ChatInterface = ({
 									<Badge
 										key={toolId || index}
 										variant={isSelected ? "default" : "outline"}
-										className="cursor-pointer transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800 dark:hover:text-white dark:text-black dark:bg-zinc-400"
+										className="cursor-pointer transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
 										onClick={() => handleToolToggle(toolId)}>
 										{getToolDisplayName(tool)}
 									</Badge>
@@ -486,37 +526,38 @@ const ChatInterface = ({
 				)}
 
 				{/* Message Input */}
-				<form
-					onSubmit={handleSendMessage}
-					className="flex gap-2 items-center text=gray-900 dark:text-gray-100">
-					<Input
-						value={inputMessage}
-						onChange={(e) => setInputMessage(e.target.value)}
-						placeholder="Type your message..."
-						disabled={isStreaming}
-						className="flex-1"
-						onKeyDown={(e) => {
-							if (e.key === "Enter" && !e.shiftKey) {
-								e.preventDefault();
-								handleSendMessage(e);
-							}
-						}}
-					/>
+				<form onSubmit={handleSendMessage} className="flex gap-2 items-end">
+					<div className="flex-1">
+						<Input
+							value={inputMessage}
+							onChange={(e) => setInputMessage(e.target.value)}
+							placeholder={`Message ${getModelDisplayName()}...`}
+							disabled={isStreaming}
+							className="resize-none"
+							autoFocus
+						/>
+					</div>
 
-					<Button
-						type="submit"
-						disabled={!inputMessage.trim() || isStreaming || !selectedModel}
-						size="icon">
-						{isStreaming ? (
-							<Loader2 className="h-4 w-4 animate-spin" />
-						) : (
+					{isStreaming ? (
+						<Button
+							type="button"
+							onClick={handleStopStreaming}
+							variant="outline"
+							size="sm">
+							<StopCircle className="h-4 w-4" />
+						</Button>
+					) : (
+						<Button
+							type="submit"
+							disabled={!inputMessage.trim() || !selectedModel}
+							size="sm">
 							<Send className="h-4 w-4" />
-						)}
-					</Button>
+						</Button>
+					)}
 				</form>
 			</div>
 		</div>
 	);
 };
 
-export default ChatInterface;
+export default ChatCanvas;

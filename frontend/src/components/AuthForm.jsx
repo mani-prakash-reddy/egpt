@@ -84,7 +84,7 @@ const AuthForm = ({ onSuccess }) => {
 	};
 
 	return (
-		<div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-zinc-950 px-4 dark:text-gray-200 relative overflow-hidden">
+		<div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-zinc-950 px-4 dark:text-gray-200 relative overflow-hidden">
 			{/* Animated background */}
 			<div className="absolute inset-0 w-full h-full z-0 pointer-events-none">
 				<DarkVeil

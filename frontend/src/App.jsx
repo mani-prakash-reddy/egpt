@@ -22,9 +22,7 @@ function AppContent() {
 		return <AuthForm onSuccess={login} />;
 	}
 
-	return (
-		<MainLayout/>
-	);
+	return <MainLayout />;
 }
 
 function App() {

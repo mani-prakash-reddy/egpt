@@ -44,7 +44,7 @@ export class ApiService {
 		});
 	}
 
-	// POST /api/v1/signin
+	// POST /api/v1/signin - Updated to match OpenAPI spec
 	static async signin(credentials) {
 		const formData = new URLSearchParams({
 			username: credentials.username,
@@ -54,49 +54,22 @@ export class ApiService {
 			client_id: credentials.client_id || "",
 			client_secret: credentials.client_secret || "",
 		});
-		return fetch(`${this.baseURL}/signin`, {
+
+		const url = `${this.baseURL}/signin`;
+		const response = await fetch(url, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/x-www-form-urlencoded",
 			},
 			body: formData,
-		}).then((response) => {
-			if (!response.ok) {
-				throw new Error("Signin failed");
-			}
-			return response.json();
 		});
-	}
 
-	// POST /api/v1/token (login for access token)
-	static async loginForAccessToken(credentials) {
-		const formData = new URLSearchParams({
-			username: credentials.username,
-			password: credentials.password,
-			grant_type: "password",
-			scope: credentials.scope || "",
-			client_id: credentials.client_id || "",
-			client_secret: credentials.client_secret || "",
-		});
-		return fetch(`${this.baseURL}/token`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/x-www-form-urlencoded",
-			},
-			body: formData,
-		}).then((response) => {
-			if (!response.ok) {
-				throw new Error("Login for access token failed");
-			}
-			return response.json();
-		});
-	}
+		if (!response.ok) {
+			const errorData = await response.json().catch(() => ({}));
+			throw new Error(errorData.detail || "Signin failed");
+		}
 
-	// POST /api/v1/logout
-	static async logout() {
-		return this.request("/logout", {
-			method: "POST",
-		});
+		return response.json();
 	}
 
 	// Chat endpoints
@@ -127,12 +100,15 @@ export class ApiService {
 			},
 			body: JSON.stringify(chatData),
 		};
+
 		const response = await fetch(url, config);
+
 		if (!response.ok) {
 			const errorData = await response.json().catch(() => ({}));
 			throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
 		}
-		return response; // For streaming
+
+		return response; // Return response for streaming
 	}
 
 	// GET /api/v1/conversations/{conversation_id}/history
@@ -140,11 +116,12 @@ export class ApiService {
 		return this.request(`/conversations/${conversationId}/history`);
 	}
 
-	// Additional conversation management methods
-
 	// GET /api/v1/conversations?limit&offset
 	static async getUserConversations({ limit = 50, offset = 0 } = {}) {
-		const params = new URLSearchParams({ limit: limit.toString(), offset: offset.toString() });
+		const params = new URLSearchParams({
+			limit: limit.toString(),
+			offset: offset.toString(),
+		});
 		return this.request(`/conversations?${params.toString()}`);
 	}
 
@@ -162,9 +139,18 @@ export class ApiService {
 
 	// GET /api/v1/health
 	static async healthCheck() {
-		const url = `${this.baseURL}/health`;
-		const response = await fetch(url);
-		if (!response.ok) return false;
-		return response.json();
+		try {
+			const response = await this.request("/health");
+			return response;
+		} catch (error) {
+			return false;
+		}
+	}
+
+	// POST /api/v1/logout (optional - not in OpenAPI spec but commonly needed)
+	static async logout() {
+		// Since the API doesn't specify a logout endpoint, we'll just return success
+		// The actual logout logic is handled by clearing tokens in AuthContext
+		return Promise.resolve();
 	}
 }
