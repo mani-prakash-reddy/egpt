@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, status, APIRouter
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from database.connection import get_db
 from database.db_models import User
 from sqlalchemy.orm import Session
@@ -24,8 +24,20 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 
 
 class Token(BaseModel):
-    access_token: str
-    token_type: str
+    access_token: str = Field(
+        ...,
+        description="JWT access token",
+        examples=["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."],
+    )
+    token_type: str = Field(..., description="Token type", examples=["bearer"])
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqb2huZG9lIiwiZXhwIjoxNjQwOTk1MjAwfQ.abc123",
+                "token_type": "bearer",
+            }
+        }
 
 
 class TokenData(BaseModel):
@@ -99,20 +111,89 @@ router = APIRouter()
 
 
 class UserCreate(BaseModel):
-    username: str
-    email: str
-    password: str
+    username: str = Field(
+        ...,
+        min_length=3,
+        max_length=50,
+        description="Unique username for the account",
+        examples=["johndoe"],
+    )
+    email: str = Field(
+        ..., description="Valid email address", examples=["john.doe@example.com"]
+    )
+    password: str = Field(
+        ...,
+        min_length=8,
+        description="Password (minimum 8 characters)",
+        examples=["SecurePassword123!"],
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "username": "johndoe",
+                "email": "john.doe@example.com",
+                "password": "SecurePassword123!",
+            }
+        }
 
 
 class UserOut(BaseModel):
-    id: str
-    username: str
-    email: str
-    is_active: bool
-    is_admin: bool
+    id: str = Field(
+        ...,
+        description="Unique user identifier",
+        examples=["123e4567-e89b-12d3-a456-426614174000"],
+    )
+    username: str = Field(..., description="Username", examples=["johndoe"])
+    email: str = Field(..., description="Email address", examples=["john.doe@example.com"])
+    is_active: bool = Field(
+        ..., description="Whether the user account is active", examples=[True]
+    )
+    is_admin: bool = Field(
+        ..., description="Whether the user has admin privileges", examples=[False]
+    )
 
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "username": "johndoe",
+                "email": "john.doe@example.com",
+                "is_active": True,
+                "is_admin": False
+            }
+        }
 
-@router.post("/signup", response_model=UserOut)
+@router.post(
+    "/signup",
+    response_model=UserOut,
+    summary="Create a new user account",
+    description="Register a new user with username, email, and password. Username and email must be unique.",
+    responses={
+        201: {
+            "description": "User created successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": "123e4567-e89b-12d3-a456-426614174000",
+                        "username": "johndoe",
+                        "email": "john.doe@example.com",
+                        "is_active": True,
+                        "is_admin": False,
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Username or email already registered",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Username or email already registered"}
+                }
+            },
+        },
+    },
+)
 async def signup(user: UserCreate, db: Session = Depends(get_db)):
     db_user = (
         db.query(User)
@@ -144,7 +225,33 @@ async def signup(user: UserCreate, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/signin", response_model=Token)
+@router.post(
+    "/signin",
+    response_model=Token,
+    summary="Sign in to get access token",
+    description="Authenticate user with username/email and password to receive a JWT access token.",
+    responses={
+        200: {
+            "description": "Login successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqb2huZG9lIiwiZXhwIjoxNjQwOTk1MjAwfQ.abc123",
+                        "token_type": "bearer",
+                    }
+                }
+            },
+        },
+        401: {
+            "description": "Invalid credentials",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Incorrect username or password"}
+                }
+            },
+        },
+    },
+)
 async def signin(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Session = Depends(get_db),
@@ -163,29 +270,29 @@ async def signin(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/logout")
-async def logout():
-    # JWT tokens are stateless; logout is handled client-side by deleting the token.
-    return {
-        "message": "Successfully logged out. Please remove the token on the client."
-    }
+# @router.post("/logout")
+# async def logout():
+#     # JWT tokens are stateless; logout is handled client-side by deleting the token.
+#     return {
+#         "message": "Successfully logged out. Please remove the token on the client."
+#     }
 
 
 # Keep /token for OAuth2PasswordBearer compatibility
-@router.post("/token", response_model=Token)
-async def login_for_access_token(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    db: Session = Depends(get_db),
-):
-    user = authenticate_user(db, form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+# @router.post("/token", response_model=Token)
+# async def login_for_access_token(
+#     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+#     db: Session = Depends(get_db),
+# ):
+#     user = authenticate_user(db, form_data.username, form_data.password)
+#     if not user:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Incorrect username or password",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
+#     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+#     access_token = create_access_token(
+#         data={"sub": user.username}, expires_delta=access_token_expires
+#     )
+#     return {"access_token": access_token, "token_type": "bearer"}

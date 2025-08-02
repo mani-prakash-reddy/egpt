@@ -16,6 +16,13 @@ model_list:
       model: gpt-4o-mini
       # api_base: os.environ/OPENAI_API_BASE
       api_key: "os.environ/OPENAI_API_KEY"
+  
+  - model_name: claude-sonnet-4
+    litellm_params:
+      model: us.anthropic.claude-sonnet-4-20250514-v1:0
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: os.environ/AWS_REGION_NAME
 
 general_settings: 
   master_key: sk-1234 

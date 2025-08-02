@@ -40,11 +40,6 @@ services:
         depends_on:
             database:
                 condition: service_healthy
-        healthcheck:
-            test: ["CMD", "curl", "-f", "http://localhost/health"]
-            interval: 30s
-            timeout: 10s
-            retries: 5
         networks:
             - gpt-bridge
 
