@@ -382,7 +382,7 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 			{(currentConversationId || messages.length > 0) && (
 				<div className="flex-1 overflow-hidden">
 					<ScrollArea className="h-full">
-						<div className="p-4 space-y-4">
+						<div className="p-4 space-y-4 pb-32">
 							{isLoadingHistory ? (
 								<div className="text-center py-8">
 									<Loader2 className="h-6 w-6 animate-spin mx-auto" />
@@ -491,7 +491,7 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 			<Separator />
 
 			{/* Input Area */}
-			<div className="p-4 bg-white dark:bg-neutral-900">
+			<div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 p-4 bg-neutral-900/80 backdrop-blur-lm w-7/12 rounded-lg border border-neutral-700/50 shadow-2xl">
 				{/* Tools Selection */}
 				{availableTools.length > 0 && (
 					<div className="mb-4">

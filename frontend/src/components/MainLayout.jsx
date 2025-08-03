@@ -29,7 +29,7 @@ const MainLayout = () => {
 
 	return (
 		<SidebarProvider>
-			<div className="flex h-screen w-full bg-neutral-900 text-white">
+			<div className="flex  w-full bg-neutral-900 text-white">
 				<Sidebar>
 					<ChatSidebar
 						onNewChat={handleNewChat}

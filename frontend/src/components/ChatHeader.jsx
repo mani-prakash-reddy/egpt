@@ -181,7 +181,7 @@ const ChatHeader = ({ selectedModel, onModelChange }) => {
 		<header className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-neutral-900">
 			{/* Left side - App name and model selection */}
 			<div className="flex items-center gap-4">
-				<h1 className="text-xl font-bold text-gray-900 dark:text-white">GPT Assistant</h1>
+				<h1 className="text-xl font-bold:text-white">APP</h1>
 
 				<div className="flex items-center gap-2">
 					{/* Model Selection */}
@@ -216,7 +216,7 @@ const ChatHeader = ({ selectedModel, onModelChange }) => {
 												<div className="flex flex-col">
 													<span>{model.name}</span>
 													{model.description && (
-														<span className="text-xs text-gray-500 dark:text-gray-400">
+														<span className="text-xs">
 															{model.description}
 														</span>
 													)}
@@ -232,7 +232,7 @@ const ChatHeader = ({ selectedModel, onModelChange }) => {
 					{/* Tools Button */}
 					<Sheet>
 						<SheetTrigger asChild>
-							<Button variant="outline" size="sm" className="gap-2">
+							{/* <Button variant="outline" size="sm" className="gap-2">
 								<Wrench className="h-4 w-4" />
 								<span className="hidden sm:inline">Tools</span>
 								{selectedTools.length > 0 && (
@@ -240,7 +240,7 @@ const ChatHeader = ({ selectedModel, onModelChange }) => {
 										{selectedTools.length}
 									</span>
 								)}
-							</Button>
+							</Button> */}
 						</SheetTrigger>
 						<SheetContent className="w-[400px] sm:w-[540px]">
 							<SheetHeader>
@@ -253,7 +253,7 @@ const ChatHeader = ({ selectedModel, onModelChange }) => {
 							<div className="space-y-4 mt-6">
 								{/* Search Bar */}
 								<div className="relative">
-									<Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+									<Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white" />
 									<Input
 										placeholder="Search tools..."
 										value={toolSearchQuery}
@@ -270,7 +270,7 @@ const ChatHeader = ({ selectedModel, onModelChange }) => {
 											<span className="ml-2">Loading tools...</span>
 										</div>
 									) : filteredTools.length === 0 ? (
-										<div className="text-center py-8 text-gray-500 dark:text-gray-400">
+										<div className="text-center py-8 text-white">
 											{toolSearchQuery
 												? "No tools found matching your search"
 												: "No tools available"}
@@ -289,12 +289,12 @@ const ChatHeader = ({ selectedModel, onModelChange }) => {
 														key={toolName}
 														className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
 														<div className="flex-1">
-															<h4 className="font-medium text-gray-900 dark:text-white">
+															<h4 className="font-medium text-white">
 																{getToolDisplayName(tool)}
 															</h4>
 															{typeof tool === "object" &&
 																tool.description && (
-																	<p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+																	<p className="text-sm mt-1">
 																		{tool.description}
 																	</p>
 																)}
