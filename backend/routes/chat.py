@@ -271,8 +271,21 @@ async def chat_stream(
 ):
     """Stream chat response with conversation history and tool support"""
     try:
-        # Use existing conversation or None (will be created when first message is saved)
+        # Extract user_id here, before streaming starts
+        user_id = str(current_user.id)
+
+        # Use existing conversation or None
         conversation_id = request.conversation_id
+
+        # If no conversation_id is provided, create one first before streaming
+        if not conversation_id:
+            # Create a conversation first to get an ID
+            title = chat_service.generate_conversation_title(request.prompt)
+            new_conversation = chat_service.create_conversation(
+                db, user_id=user_id, title=title
+            )
+            conversation_id = str(new_conversation.id)
+            chat_service._last_conversation_id = conversation_id
 
         async def generate_with_headers():
             async for chunk in chat_service.generate_response_stream(
@@ -281,18 +294,19 @@ async def chat_stream(
                 model_string=request.model,
                 conversation_id=conversation_id,
                 tool_names=request.tools,
-                user_id=str(current_user.id),
+                user_id=user_id,  # Use pre-extracted user_id instead of current_user.id
             ):
                 yield chunk
 
-        # Get the conversation ID after potential creation
+        # Now use the conversation ID we got
         final_conversation_id = (
-            conversation_id or chat_service.get_last_conversation_id() or "none"
+            conversation_id or chat_service.get_last_conversation_id() or ""
         )
+        print(f"Final conversation ID: {final_conversation_id}")
 
         return StreamingResponse(
             generate_with_headers(),
-            media_type="text/stream",
+            media_type="text/stream; charset=utf-8",
             headers={"X-Conversation-ID": final_conversation_id},
         )
     except Exception as e:

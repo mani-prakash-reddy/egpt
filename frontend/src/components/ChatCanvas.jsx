@@ -147,24 +147,39 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 		abortControllerRef.current = new AbortController();
 
 		try {
+			// Create the chat request data with conversation ID if available
 			const chatData = {
 				prompt: userMessage.content,
 				model: selectedModel,
-				conversation_id: currentConversationId,
+				conversation_id: currentConversationId || null,
 				tools: selectedTools.length > 0 ? selectedTools : undefined,
 			};
 
+			console.log("Sending chat request:", JSON.stringify(chatData));
+			console.log("Current conversation ID:", currentConversationId);
+
 			const response = await ApiService.chatStream(chatData);
 
-			// Get conversation ID from headers if this is a new conversation
+			// Log all headers to debug
+			console.log("Response status:", response.status);
+			response.headers.forEach((value, key) => {
+				console.log(`Response header: ${key} = ${value}`);
+			});
+
+			// Get conversation ID from headers
 			const conversationIdFromResponse = response.headers.get("X-Conversation-ID");
+			console.log("X-Conversation-ID from response:", conversationIdFromResponse);
+
+			// Store the ID locally first, don't call onSelectConversation yet
+			let newConversationId = null;
 			if (conversationIdFromResponse && !currentConversationId) {
-				onSelectConversation(conversationIdFromResponse);
+				console.log("Setting new conversation ID:", conversationIdFromResponse);
+				newConversationId = conversationIdFromResponse;
+				// We'll call onSelectConversation AFTER streaming is complete
 			}
 
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
-
 			let streamedContent = "";
 
 			while (true) {
@@ -177,71 +192,95 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 				}
 
 				const chunk = decoder.decode(value);
-				const lines = chunk.split("\n");
+				console.log("Received chunk:", chunk);
 
-				for (const line of lines) {
-					if (line.startsWith("data: ")) {
-						const data = line.slice(6);
-						if (data === "[DONE]") {
-							break;
-						}
+				// Try to handle different streaming formats
+				if (chunk.includes("data: ")) {
+					// SSE format with "data: " prefix
+					const lines = chunk.split("\n");
 
-						try {
-							const parsed = JSON.parse(data);
-							if (parsed.content) {
-								streamedContent += parsed.content;
-
-								setMessages((prev) =>
-									prev.map((msg) =>
-										msg.id === assistantMessage.id
-											? { ...msg, content: streamedContent }
-											: msg
-									)
-								);
+					for (const line of lines) {
+						if (line.startsWith("data: ")) {
+							const data = line.slice(6);
+							if (data === "[DONE]") {
+								break;
 							}
-						} catch (err) {
-							// Handle non-JSON chunks (plain text streaming)
-							if (data.trim()) {
-								streamedContent += data;
 
-								setMessages((prev) =>
-									prev.map((msg) =>
-										msg.id === assistantMessage.id
-											? { ...msg, content: streamedContent }
-											: msg
-									)
-								);
+							try {
+								const parsed = JSON.parse(data);
+								if (parsed.content) {
+									streamedContent += parsed.content;
+								} else if (parsed.choices && parsed.choices[0]?.delta?.content) {
+									// Handle OpenAI-like format
+									streamedContent += parsed.choices[0].delta.content;
+								} else if (parsed.text || parsed.message) {
+									// Handle other common formats
+									streamedContent += parsed.text || parsed.message;
+								}
+							} catch (err) {
+								// Handle non-JSON chunks (plain text streaming)
+								if (data.trim()) {
+									streamedContent += data;
+								}
 							}
 						}
 					}
+				} else {
+					// Plain text streaming without "data: " prefix
+					if (chunk.trim()) {
+						try {
+							// Try parsing as JSON first
+							const parsed = JSON.parse(chunk);
+							if (parsed.content) {
+								streamedContent += parsed.content;
+							} else if (parsed.choices && parsed.choices[0]?.delta?.content) {
+								streamedContent += parsed.choices[0].delta.content;
+							} else if (parsed.text || parsed.message) {
+								streamedContent += parsed.text || parsed.message;
+							}
+						} catch (err) {
+							// If not JSON, treat as plain text
+							streamedContent += chunk;
+						}
+					}
 				}
-			}
 
-			// Mark streaming as complete
+				// Update UI with the current accumulated content
+				setMessages((prev) =>
+					prev.map((msg) =>
+						msg.id === assistantMessage.id ? { ...msg, content: streamedContent } : msg
+					)
+				);
+			}
+		} catch (error) {
+			console.error("Error in chat stream:", error);
+
+			// Update the assistant message to show the error
+			setMessages((prev) =>
+				prev.map((msg) =>
+					msg.id === assistantMessage.id
+						? { ...msg, content: `Error: ${error.message}`, isStreaming: false }
+						: msg
+				)
+			);
+		} finally {
+			// Important: Make sure to check if the current conversation ID is set
+			console.log("Final conversation ID after request:", currentConversationId);
+			setIsStreaming(false);
+
+			// Update the assistant message to mark streaming as complete
 			setMessages((prev) =>
 				prev.map((msg) =>
 					msg.id === assistantMessage.id ? { ...msg, isStreaming: false } : msg
 				)
 			);
-		} catch (error) {
-			console.error("Failed to send message:", error);
 
-			// Update the assistant message to show error
-			setMessages((prev) =>
-				prev.map((msg) =>
-					msg.id === assistantMessage.id
-						? {
-								...msg,
-								content: `Error: ${error.message || "Failed to get response"}`,
-								isStreaming: false,
-								isError: true,
-						  }
-						: msg
-				)
-			);
-		} finally {
-			setIsStreaming(false);
-			abortControllerRef.current = null;
+			// NOW update the conversation ID after streaming is complete
+			if (newConversationId) {
+				setTimeout(() => {
+					onSelectConversation(newConversationId);
+				}, 100);
+			}
 		}
 	};
 
@@ -391,96 +430,104 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 									</p>
 								</div>
 							) : (
-								messages.map((message) => (
-									<div
-										key={message.id}
-										className={`flex gap-3 ${
-											message.role === "user"
-												? "justify-end"
-												: "justify-start"
-										}`}>
-										{message.role === "assistant" && (
-											<div className="flex-shrink-0">
-												<div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
-													<Bot className="h-4 w-4 text-white" />
-												</div>
-											</div>
-										)}
-
+								messages.map((message) => {
+									// console.log(
+									// 	"Rendering message:",
+									// 	message.id,
+									// 	message.content,
+									// 	message.isStreaming
+									// );
+									return (
 										<div
-											className={`max-w-[70%] rounded-lg px-4 py-2 ${
+											key={message.id}
+											className={`flex gap-3 ${
 												message.role === "user"
-													? "bg-blue-500 text-white"
-													: message.isError
-													? "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
-													: "bg-neutral-100 dark:bg-neutral-800"
+													? "justify-end"
+													: "justify-start"
 											}`}>
-											{message.role === "user" ? (
-												<p className="text-sm">{message.content}</p>
-											) : (
-												<div className="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100">
-													{message.isStreaming ? (
-														// Simple text display during streaming
-														<div>
-															{message.content}
-															<span className="inline-block w-2 h-4 bg-neutral-400 animate-pulse ml-1" />
-														</div>
-													) : (
-														// Use ReactMarkdown only when streaming is complete
-														<ReactMarkdown
-															remarkPlugins={[remarkGfm]}
-															rehypePlugins={[rehypeHighlight]}
-															components={{
-																code: ({
-																	node,
-																	inline,
-																	className,
-																	children,
-																	...props
-																}) => {
-																	const match =
-																		/language-(\w+)/.exec(
-																			className || ""
-																		);
-																	return !inline && match ? (
-																		<pre className="rounded-md overflow-x-auto">
-																			<code
-																				className={
-																					className
-																				}
-																				{...props}>
-																				{children}
-																			</code>
-																		</pre>
-																	) : (
-																		<code
-																			className="bg-neutral-200 dark:bg-neutral-700 px-1 py-0.5 rounded text-sm"
-																			{...props}>
-																			{children}
-																		</code>
-																	);
-																},
-															}}>
-															{message.content}
-														</ReactMarkdown>
-													)}
+											{message.role === "assistant" && (
+												<div className="flex-shrink-0">
+													<div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
+														<Bot className="h-4 w-4 text-white" />
+													</div>
 												</div>
 											)}
 
-											<div className="text-xs opacity-70 mt-1">
-												{formatTimestamp(message.timestamp)}
-											</div>
-										</div>
+											<div
+												className={`max-w-[70%] rounded-lg px-4 py-2 ${
+													message.role === "user"
+														? "bg-blue-500 text-white"
+														: message.isError
+														? "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+														: "bg-neutral-100 dark:bg-neutral-800"
+												}`}>
+												{message.role === "user" ? (
+													<p className="text-sm">{message.content}</p>
+												) : (
+													<div className="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100">
+														{message.isStreaming ? (
+															// Simple text display during streaming
+															<div>
+																{message.content}
+																<span className="inline-block w-2 h-4 bg-neutral-400 animate-pulse ml-1" />
+															</div>
+														) : (
+															// Use ReactMarkdown only when streaming is complete
+															<ReactMarkdown
+																remarkPlugins={[remarkGfm]}
+																rehypePlugins={[rehypeHighlight]}
+																components={{
+																	code: ({
+																		node,
+																		inline,
+																		className,
+																		children,
+																		...props
+																	}) => {
+																		const match =
+																			/language-(\w+)/.exec(
+																				className || ""
+																			);
+																		return !inline && match ? (
+																			<pre className="rounded-md overflow-x-auto">
+																				<code
+																					className={
+																						className
+																					}
+																					{...props}>
+																					{children}
+																				</code>
+																			</pre>
+																		) : (
+																			<code
+																				className="bg-neutral-200 dark:bg-neutral-700 px-1 py-0.5 rounded text-sm"
+																				{...props}>
+																				{children}
+																			</code>
+																		);
+																	},
+																}}>
+																{message.content}
+															</ReactMarkdown>
+														)}
+													</div>
+												)}
 
-										{message.role === "user" && (
-											<div className="flex-shrink-0">
-												<div className="w-8 h-8 rounded-full bg-neutral-500 flex items-center justify-center">
-													<User className="h-4 w-4 text-white" />
+												<div className="text-xs opacity-70 mt-1">
+													{formatTimestamp(message.timestamp)}
 												</div>
 											</div>
-										)}
-									</div>
-								))
+
+											{message.role === "user" && (
+												<div className="flex-shrink-0">
+													<div className="w-8 h-8 rounded-full bg-neutral-500 flex items-center justify-center">
+														<User className="h-4 w-4 text-white" />
+													</div>
+												</div>
+											)}
+										</div>
+									);
+								})
 							)}
 							<div ref={messagesEndRef} />
 						</div>
