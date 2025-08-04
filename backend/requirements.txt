@@ -13,6 +13,7 @@ langchain_ollama
 langchain-community
 langchain-experimental
 langchain
+langgraph
 pgvector
 chromadb
 duckduckgo-search
