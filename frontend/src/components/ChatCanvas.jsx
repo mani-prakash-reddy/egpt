@@ -18,12 +18,20 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
+import remarkFrontmatter from "remark-frontmatter";
+import remarkMath from "remark-math";
+import remarkWikiLink from "remark-wiki-link";
 import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import rehypeKatex from "rehype-katex";
 import { ApiService } from "@/apis/apiService";
 import { v4 as uuidv4 } from "uuid";
 
-// Import highlight.js styles
+// Import highlight.js styles and katex styles
 import "highlight.js/styles/github-dark.css";
+import "katex/dist/katex.min.css";
 
 const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectConversation }) => {
 	const [messages, setMessages] = useState([]);
@@ -465,18 +473,130 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 													<p className="text-sm">{message.content}</p>
 												) : (
 													<div className="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100">
-														{message.isStreaming ? (
-															// Simple text display during streaming
-															<div>
-																{message.content}
-																<span className="inline-block w-2 h-4 bg-neutral-400 animate-pulse ml-1" />
-															</div>
-														) : (
-															// Use ReactMarkdown only when streaming is complete
+														{/* Apply ReactMarkdown for both streaming and complete messages */}
+														<div className="relative">
 															<ReactMarkdown
-																remarkPlugins={[remarkGfm]}
-																rehypePlugins={[rehypeHighlight]}
+																remarkPlugins={[
+																	remarkGfm,
+																	remarkBreaks,
+																	remarkFrontmatter,
+																	remarkMath,
+																	[
+																		remarkWikiLink,
+																		{
+																			pageResolver: (
+																				name
+																			) => [
+																				name
+																					.replace(
+																						/ /g,
+																						"-"
+																					)
+																					.toLowerCase(),
+																			],
+																			hrefTemplate: (
+																				permalink
+																			) => `#${permalink}`,
+																		},
+																	],
+																]}
+																rehypePlugins={[
+																	rehypeRaw, // This enables HTML parsing
+																	rehypeHighlight,
+																	rehypeKatex,
+																	[
+																		rehypeSanitize,
+																		{
+																			// Allow HTML tags while sanitizing dangerous content
+																			allowDangerousHtml: false,
+																			tagNames: [
+																				// Standard HTML tags
+																				"div",
+																				"span",
+																				"p",
+																				"br",
+																				"hr",
+																				"h1",
+																				"h2",
+																				"h3",
+																				"h4",
+																				"h5",
+																				"h6",
+																				"strong",
+																				"em",
+																				"u",
+																				"i",
+																				"b",
+																				"s",
+																				"del",
+																				"ins",
+																				"ul",
+																				"ol",
+																				"li",
+																				"dl",
+																				"dt",
+																				"dd",
+																				"table",
+																				"thead",
+																				"tbody",
+																				"tfoot",
+																				"tr",
+																				"th",
+																				"td",
+																				"blockquote",
+																				"pre",
+																				"code",
+																				"a",
+																				"img",
+																				"sub",
+																				"sup",
+																				"details",
+																				"summary",
+																				"mark",
+																				"small",
+																				// Allow custom elements
+																				"section",
+																				"article",
+																				"aside",
+																				"nav",
+																				"header",
+																				"footer",
+																				"main",
+																			],
+																			attributes: {
+																				"*": [
+																					"className",
+																					"style",
+																					"id",
+																				],
+																				a: [
+																					"href",
+																					"title",
+																					"target",
+																					"rel",
+																				],
+																				img: [
+																					"src",
+																					"alt",
+																					"title",
+																					"width",
+																					"height",
+																				],
+																				td: [
+																					"colSpan",
+																					"rowSpan",
+																				],
+																				th: [
+																					"colSpan",
+																					"rowSpan",
+																				],
+																				details: ["open"],
+																			},
+																		},
+																	],
+																]}
 																components={{
+																	// Enhanced code block handling
 																	code: ({
 																		node,
 																		inline,
@@ -489,27 +609,259 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 																				className || ""
 																			);
 																		return !inline && match ? (
-																			<pre className="rounded-md overflow-x-auto">
+																			<pre className="rounded-md overflow-x-auto bg-gray-900 p-4">
 																				<code
-																					className={
-																						className
-																					}
+																					className={`${className} text-sm`}
 																					{...props}>
 																					{children}
 																				</code>
 																			</pre>
 																		) : (
 																			<code
-																				className="bg-neutral-200 dark:bg-neutral-700 px-1 py-0.5 rounded text-sm"
+																				className="px-1 py-0.5 rounded text-sm bg-gray-200 dark:bg-gray-700"
 																				{...props}>
 																				{children}
 																			</code>
 																		);
 																	},
+																	// Enhanced table styling
+																	table: ({
+																		children,
+																		...props
+																	}) => (
+																		<div className="overflow-x-auto my-4">
+																			<table
+																				className="min-w-full border border-gray-300 dark:border-gray-600"
+																				{...props}>
+																				{children}
+																			</table>
+																		</div>
+																	),
+																	th: ({
+																		children,
+																		...props
+																	}) => (
+																		<th
+																			className="border border-gray-300 dark:border-gray-600 px-4 py-2 bg-gray-100 dark:bg-gray-800 font-semibold text-left"
+																			{...props}>
+																			{children}
+																		</th>
+																	),
+																	td: ({
+																		children,
+																		...props
+																	}) => (
+																		<td
+																			className="border border-gray-300 dark:border-gray-600 px-4 py-2"
+																			{...props}>
+																			{children}
+																		</td>
+																	),
+																	// Enhanced blockquote styling
+																	blockquote: ({
+																		children,
+																		...props
+																	}) => (
+																		<blockquote
+																			className="border-l-4 border-gray-300 dark:border-gray-600 pl-4 my-4 italic text-gray-700 dark:text-gray-300"
+																			{...props}>
+																			{children}
+																		</blockquote>
+																	),
+																	// Enhanced link styling
+																	a: ({
+																		children,
+																		href,
+																		...props
+																	}) => (
+																		<a
+																			href={href}
+																			className="text-blue-600 dark:text-blue-400 hover:underline"
+																			target={
+																				href?.startsWith(
+																					"http"
+																				)
+																					? "_blank"
+																					: undefined
+																			}
+																			rel={
+																				href?.startsWith(
+																					"http"
+																				)
+																					? "noopener noreferrer"
+																					: undefined
+																			}
+																			{...props}>
+																			{children}
+																		</a>
+																	),
+																	// Enhanced image styling
+																	img: ({
+																		src,
+																		alt,
+																		...props
+																	}) => (
+																		<img
+																			src={src}
+																			alt={alt}
+																			className="max-w-full h-auto rounded-md my-2"
+																			{...props}
+																		/>
+																	),
+																	// Task list styling
+																	input: ({
+																		type,
+																		checked,
+																		...props
+																	}) => {
+																		if (type === "checkbox") {
+																			return (
+																				<input
+																					type="checkbox"
+																					checked={
+																						checked
+																					}
+																					disabled
+																					className="mr-2"
+																					{...props}
+																				/>
+																			);
+																		}
+																		return (
+																			<input
+																				type={type}
+																				{...props}
+																			/>
+																		);
+																	},
+																	// Enhanced heading styling
+																	h1: ({
+																		children,
+																		...props
+																	}) => (
+																		<h1
+																			className="text-2xl font-bold mt-6 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2"
+																			{...props}>
+																			{children}
+																		</h1>
+																	),
+																	h2: ({
+																		children,
+																		...props
+																	}) => (
+																		<h2
+																			className="text-xl font-semibold mt-5 mb-3 border-b border-gray-200 dark:border-gray-700 pb-1"
+																			{...props}>
+																			{children}
+																		</h2>
+																	),
+																	h3: ({
+																		children,
+																		...props
+																	}) => (
+																		<h3
+																			className="text-lg font-semibold mt-4 mb-2"
+																			{...props}>
+																			{children}
+																		</h3>
+																	),
+																	h4: ({
+																		children,
+																		...props
+																	}) => (
+																		<h4
+																			className="text-base font-semibold mt-3 mb-2"
+																			{...props}>
+																			{children}
+																		</h4>
+																	),
+																	h5: ({
+																		children,
+																		...props
+																	}) => (
+																		<h5
+																			className="text-sm font-semibold mt-3 mb-2"
+																			{...props}>
+																			{children}
+																		</h5>
+																	),
+																	h6: ({
+																		children,
+																		...props
+																	}) => (
+																		<h6
+																			className="text-xs font-semibold mt-3 mb-2"
+																			{...props}>
+																			{children}
+																		</h6>
+																	),
+																	// Enhanced list styling
+																	ul: ({
+																		children,
+																		...props
+																	}) => (
+																		<ul
+																			className="list-disc list-inside my-2 ml-4"
+																			{...props}>
+																			{children}
+																		</ul>
+																	),
+																	ol: ({
+																		children,
+																		...props
+																	}) => (
+																		<ol
+																			className="list-decimal list-inside my-2 ml-4"
+																			{...props}>
+																			{children}
+																		</ol>
+																	),
+																	li: ({
+																		children,
+																		...props
+																	}) => (
+																		<li
+																			className="my-1"
+																			{...props}>
+																			{children}
+																		</li>
+																	),
+																	// Details/Summary for collapsible content
+																	details: ({
+																		children,
+																		...props
+																	}) => (
+																		<details
+																			className="my-4 border border-gray-300 dark:border-gray-600 rounded-md"
+																			{...props}>
+																			{children}
+																		</details>
+																	),
+																	summary: ({
+																		children,
+																		...props
+																	}) => (
+																		<summary
+																			className="px-4 py-2 bg-gray-100 dark:bg-gray-800 cursor-pointer font-semibold"
+																			{...props}>
+																			{children}
+																		</summary>
+																	),
+																	// Horizontal rule styling
+																	hr: (props) => (
+																		<hr
+																			className="my-6 border-gray-300 dark:border-gray-600"
+																			{...props}
+																		/>
+																	),
 																}}>
 																{message.content}
 															</ReactMarkdown>
-														)}
+															{/* Show typing indicator only during streaming */}
+															{message.isStreaming && (
+																<span className="inline-block w-2 h-4 bg-neutral-400 animate-pulse ml-1" />
+															)}
+														</div>
 													</div>
 												)}
 

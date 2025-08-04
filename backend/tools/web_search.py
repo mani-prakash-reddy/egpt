@@ -17,6 +17,6 @@ def web_search(query: str) -> str:
     results = search.run(query)
 
     return f"""<details closed>
-    <summary>{query}</summary>
+    <summary>Web search: `{query}`</summary>
     {results}
     </details>""" if results else "No results found."
