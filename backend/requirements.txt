@@ -17,6 +17,7 @@ langgraph
 pgvector
 chromadb
 duckduckgo-search
+ddgs
 pyjwt
 passlib[bcrypt]
 bcrypt==4.0.1
