@@ -2,7 +2,11 @@ from typing import List, Dict, Optional, AsyncGenerator
 from sqlalchemy.orm import Session
 from database.db_models import Conversation, Message
 from tools import web_search
-
+from tools.information_retriever import (
+    information_retriever,
+    search_query,
+)
+from langchain.tools import Tool
 from .openai_provider import OpenAIProvider
 
 llm_providers = {
@@ -10,6 +14,7 @@ llm_providers = {
 }
 tools = {
     "web_search": web_search,
+    "information_retriever": information_retriever,
 }
 
 
@@ -63,6 +68,7 @@ class ChatService:
         provider_name: str,
         model_name: str,
         tool_names: Optional[List[str]] = None,
+        conversation_id: Optional[str] = None,
     ):
         """Get the LLM provider instance with specified model and tools"""
         if provider_name not in self.llm_providers:
@@ -72,7 +78,23 @@ class ChatService:
         selected_tools = []
         if tool_names:
             for tool_name in tool_names:
-                if tool_name in self.tools:
+                if tool_name == "information_retriever" and conversation_id:
+
+                    def retriever_with_conversation_id(query_text: str) -> str:
+                        """Search for information in the documents attached to this conversation."""
+                        query = search_query(
+                            query=query_text, conversation_id=conversation_id
+                        )
+                        return information_retriever(query)
+
+                    # Create a tool with the wrapper function
+                    retriever_tool = Tool(
+                        name="information_retriever",
+                        func=retriever_with_conversation_id,
+                        description="Search for information in documents uploaded to this conversation",
+                    )
+                    selected_tools.append(retriever_tool)
+                elif tool_name in self.tools:
                     selected_tools.append(self.tools[tool_name])
                 else:
                     print(f"Warning: Tool '{tool_name}' not found")
@@ -230,9 +252,6 @@ class ChatService:
         try:
             # Parse model string
             provider_name, model_name = self.parse_model_string(model_string)
-            print(f"provider--- `{provider_name}`  model--- `{model_name}`")
-            # Get provider instance with tools
-            provider = self.get_provider_instance(provider_name, model_name, tool_names)
 
             # Get conversation history
             conversation_history = []
@@ -246,6 +265,14 @@ class ChatService:
                 )
                 conversation_id = str(conversation.id)
                 self._last_conversation_id = conversation_id
+
+            # Get provider instance with tools - pass conversation_id here
+            provider = self.get_provider_instance(
+                provider_name,
+                model_name,
+                tool_names,
+                conversation_id,  # Pass conversation_id to get_provider_instance
+            )
 
             # Save user message if conversation_id is available
             if conversation_id:

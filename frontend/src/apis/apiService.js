@@ -137,6 +137,44 @@ export class ApiService {
 		});
 	}
 
+	// Document management endpoints
+
+	// POST /api/v1/conversations/{conversation_id}/documents
+	static async uploadDocumentToConversation(conversationId, file) {
+		const url = `${this.baseURL}/conversations/${conversationId}/documents`;
+
+		const formData = new FormData();
+		formData.append("file", file);
+
+		const response = await fetch(url, {
+			method: "POST",
+			headers: {
+				...this.getAuthHeaders(),
+				// Don't set Content-Type here as it will be set automatically with boundary
+			},
+			body: formData,
+		});
+
+		if (!response.ok) {
+			const errorData = await response.json().catch(() => ({}));
+			throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+		}
+
+		return response.json();
+	}
+
+	// GET /api/v1/conversations/{conversation_id}/documents
+	static async getConversationDocuments(conversationId) {
+		return this.request(`/conversations/${conversationId}/documents`);
+	}
+
+	// DELETE /api/v1/documents/{document_id}
+	static async deleteDocument(documentId) {
+		return this.request(`/documents/${documentId}`, {
+			method: "DELETE",
+		});
+	}
+
 	// GET /api/v1/health
 	static async healthCheck() {
 		try {

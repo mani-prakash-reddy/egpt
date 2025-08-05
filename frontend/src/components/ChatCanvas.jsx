@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 import {
 	MessageSquare,
 	Zap,
@@ -15,6 +16,11 @@ import {
 	Settings,
 	Loader2,
 	StopCircle,
+	Paperclip,
+	X,
+	FileText,
+	File,
+	Trash2,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -42,8 +48,15 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 	const [isLoadingTools, setIsLoadingTools] = useState(true);
 	const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
+	// Document related states
+	const [documents, setDocuments] = useState([]);
+	const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+	const [isUploadingDocument, setIsUploadingDocument] = useState(false);
+	const [uploadError, setUploadError] = useState(null);
+
 	const messagesEndRef = useRef(null);
 	const abortControllerRef = useRef(null);
+	const fileInputRef = useRef(null);
 
 	useEffect(() => {
 		loadAvailableTools();
@@ -52,8 +65,10 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 	useEffect(() => {
 		if (currentConversationId) {
 			loadConversationHistory(currentConversationId);
+			loadConversationDocuments(currentConversationId);
 		} else {
 			setMessages([]);
+			setDocuments([]);
 		}
 	}, [currentConversationId]);
 
@@ -63,6 +78,127 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 
 	const scrollToBottom = () => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+	};
+
+	// Load documents attached to the current conversation
+	const loadConversationDocuments = async (conversationId) => {
+		if (!conversationId) return;
+		
+		try {
+			setIsLoadingDocuments(true);
+			const response = await ApiService.getConversationDocuments(conversationId);
+			
+			// Handle different response formats
+			let documentsList = [];
+			if (Array.isArray(response)) {
+				documentsList = response;
+			} else if (response && Array.isArray(response.documents)) {
+				documentsList = response.documents;
+			} else {
+				console.warn("Unexpected documents response format:", response);
+				documentsList = [];
+			}
+			
+			setDocuments(documentsList);
+		} catch (error) {
+			console.error("Failed to load conversation documents:", error);
+			
+			// Don't show error toast for new conversations that might not have the endpoint yet
+			if (error.message && !error.message.includes("404")) {
+				toast({
+					title: "Note",
+					description: "Document features are loading...",
+					variant: "default",
+				});
+			}
+			
+			// Set empty documents list on error
+			setDocuments([]);
+		} finally {
+			setIsLoadingDocuments(false);
+		}
+	};
+
+	// Handle file selection button click
+	const handleFileButtonClick = () => {
+		fileInputRef.current?.click();
+	};
+
+	// Handle file selection
+	const handleFileChange = async (e) => {
+		const file = e.target.files?.[0];
+		if (!file || !currentConversationId) return;
+
+		// Reset file input to allow selecting the same file again
+		e.target.value = null;
+
+		await uploadFile(file);
+	};
+
+	// Upload file to conversation
+	const uploadFile = async (file) => {
+		if (!currentConversationId) {
+			toast({
+				title: "Error",
+				description: "Please start a conversation first",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		try {
+			setIsUploadingDocument(true);
+			setUploadError(null);
+
+			const response = await ApiService.uploadDocumentToConversation(
+				currentConversationId,
+				file
+			);
+
+			// Reload documents to get the updated list
+			await loadConversationDocuments(currentConversationId);
+
+			toast({
+				title: "Success",
+				description: `${file.name} uploaded successfully`,
+				variant: "default",
+			});
+		} catch (error) {
+			console.error("Failed to upload document:", error);
+			setUploadError(error.message);
+			toast({
+				title: "Upload Failed",
+				description: error.message || "Failed to upload document",
+				variant: "destructive",
+			});
+		} finally {
+			setIsUploadingDocument(false);
+		}
+	};
+
+	// Delete document
+	const handleDeleteDocument = async (documentId, documentName) => {
+		if (!documentId) return;
+
+		try {
+			await ApiService.deleteDocument(documentId);
+
+			// Update local state to remove the deleted document
+			setDocuments((prevDocuments) => prevDocuments.filter((doc) => doc.id !== documentId));
+
+			toast({
+				title: "Success",
+				description: `${documentName} deleted successfully`,
+				variant: "default",
+			});
+		} catch (error) {
+			console.error("Failed to delete document:", error);
+			toast({
+				title: "Error",
+				description: "Failed to delete document",
+				variant: "destructive",
+			});
+		}
 	};
 
 	const loadAvailableTools = async () => {
@@ -154,7 +290,7 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 		// Create a new AbortController for this request
 		abortControllerRef.current = new AbortController();
 		let conversationIdFromResponse = null;
-		
+
 		try {
 			// Create the chat request data with conversation ID if available
 			const chatData = {
@@ -287,6 +423,11 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 			if (conversationIdFromResponse) {
 				setTimeout(() => {
 					onSelectConversation(conversationIdFromResponse);
+
+					// Load documents for the new conversation
+					if (!currentConversationId) {
+						loadConversationDocuments(conversationIdFromResponse);
+					}
 				}, 100);
 			}
 			console.log("Streaming complete, conversation ID set:", conversationIdFromResponse);
@@ -386,42 +527,42 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 
 						{/* Feature Cards */}
 						{/* <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
-							<Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
-								<CardContent className="text-center space-y-2 p-0">
-									<MessageSquare className="h-8 w-8 mx-auto text-blue-500" />
-									<h3 className="font-semibold text-gray-900 dark:text-white">
-										Natural Conversations
-									</h3>
-									<p className="text-sm text-gray-600 dark:text-gray-400">
-										Chat naturally with AI assistance
-									</p>
-								</CardContent>
-							</Card>
+                            <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
+                                <CardContent className="text-center space-y-2 p-0">
+                                    <MessageSquare className="h-8 w-8 mx-auto text-blue-500" />
+                                    <h3 className="font-semibold text-gray-900 dark:text-white">
+                                        Natural Conversations
+                                    </h3>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                                        Chat naturally with AI assistance
+                                    </p>
+                                </CardContent>
+                            </Card>
 
-							<Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
-								<CardContent className="text-center space-y-2 p-0">
-									<Zap className="h-8 w-8 mx-auto text-yellow-500" />
-									<h3 className="font-semibold text-gray-900 dark:text-white">
-										Tool Integration
-									</h3>
-									<p className="text-sm text-gray-600 dark:text-gray-400">
-										Access powerful tools and functions
-									</p>
-								</CardContent>
-							</Card>
+                            <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
+                                <CardContent className="text-center space-y-2 p-0">
+                                    <Zap className="h-8 w-8 mx-auto text-yellow-500" />
+                                    <h3 className="font-semibold text-gray-900 dark:text-white">
+                                        Tool Integration
+                                    </h3>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                                        Access powerful tools and functions
+                                    </p>
+                                </CardContent>
+                            </Card>
 
-							<Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
-								<CardContent className="text-center space-y-2 p-0">
-									<Globe className="h-8 w-8 mx-auto text-green-500" />
-									<h3 className="font-semibold text-gray-900 dark:text-white">
-										Web Search
-									</h3>
-									<p className="text-sm text-gray-600 dark:text-gray-400">
-										Get real-time information from the web
-									</p>
-								</CardContent>
-							</Card>
-						</div> */}
+                            <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
+                                <CardContent className="text-center space-y-2 p-0">
+                                    <Globe className="h-8 w-8 mx-auto text-green-500" />
+                                    <h3 className="font-semibold text-gray-900 dark:text-white">
+                                        Web Search
+                                    </h3>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                                        Get real-time information from the web
+                                    </p>
+                                </CardContent>
+                            </Card>
+                        </div> */}
 					</div>
 				</div>
 			)}
@@ -925,6 +1066,38 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 					</div>
 				)}
 
+				{/* Uploaded Documents */}
+				{documents.length > 0 && (
+					<div className="mb-4">
+						<div className="flex items-center gap-2 mb-2">
+							<FileText className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+							<span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+								Uploaded Documents:
+							</span>
+							{isLoadingDocuments && <Loader2 className="h-3 w-3 animate-spin" />}
+						</div>
+						<div className="flex flex-wrap gap-2">
+							{documents.map((doc) => (
+								<div
+									key={doc.id}
+									className="flex items-center gap-1 bg-neutral-800 text-neutral-200 text-xs px-2 py-1 rounded-md">
+									<File className="h-3 w-3" />
+									<span className="max-w-[120px] truncate">{doc.filename}</span>
+									<button
+										className="text-neutral-400 hover:text-red-500 transition-colors"
+										onClick={() => handleDeleteDocument(doc.id, doc.filename)}
+										title="Delete document">
+										<Trash2 className="h-3 w-3" />
+									</button>
+								</div>
+							))}
+						</div>
+					</div>
+				)}
+
+				{/* Upload error message */}
+				{uploadError && <div className="mb-4 text-red-500 text-xs">{uploadError}</div>}
+
 				{/* Message Input */}
 				<form onSubmit={handleSendMessage} className="flex gap-2 items-end">
 					<div className="flex-1">
@@ -954,6 +1127,26 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 							<Send className="h-4 w-4" />
 						</Button>
 					)}
+
+					{/* File upload button */}
+					<Button
+						type="button"
+						onClick={handleFileButtonClick}
+						variant="outline"
+						size="sm"
+						disabled={isStreaming}
+						className="flex-shrink-0">
+						<Paperclip className="h-4 w-4" />
+					</Button>
+
+					{/* Hidden file input */}
+					<input
+						type="file"
+						ref={fileInputRef}
+						onChange={handleFileChange}
+						className="hidden"
+						accept=".txt,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.bmp,.svg,.zip,.rar"
+					/>
 				</form>
 			</div>
 		</div>

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List
@@ -6,12 +6,13 @@ from pydantic import BaseModel, Field
 
 from database.connection import get_db
 from services.chat_service import ChatService
+from services.embedding_provider import DocumentService
 from routes.user import get_current_active_user
-from database.db_models import User
+from database.db_models import User, Conversation
 
 router = APIRouter()
 chat_service = ChatService()
-
+document_service = DocumentService()
 
 class ChatRequest(BaseModel):
     prompt: str = Field(
@@ -477,3 +478,162 @@ async def delete_conversation(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post(
+    "/conversations/{conversation_id}/documents",
+    summary="Upload document to conversation",
+    description="Upload a document to be used with the RAG system in a specific conversation",
+    responses={
+        200: {
+            "description": "Document uploaded successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "document_id": "123e4567-e89b-12d3-a456-426614174000",
+                        "filename": "sample.pdf",
+                        "chunks": 15,
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Invalid file type",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Unsupported file type. Supported types: .pdf, .docx, .txt, .csv"
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Conversation not found",
+            "content": {
+                "application/json": {"example": {"detail": "Conversation not found"}}
+            },
+        },
+    },
+)
+
+async def upload_document_to_conversation(
+    conversation_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Upload a document to a conversation for RAG"""
+    # Verify conversation exists and belongs to user
+    conversation = (
+        db.query(Conversation)
+        .filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == str(current_user.id),
+        )
+        .first()
+    )
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Get organization ID (default to user ID if no organization)
+    organization_id = None
+
+    # Upload document
+    result = await document_service.upload_document(
+        file=file,
+        conversation_id=conversation_id,
+        user_id=str(current_user.id),
+        organization_id=organization_id,
+        db=db,
+    )
+
+    return result
+
+
+@router.get(
+    "/conversations/{conversation_id}/documents",
+    summary="Get conversation documents",
+    description="Get all documents attached to a specific conversation",
+    responses={
+        200: {
+            "description": "Documents retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "documents": [
+                            {
+                                "id": "123e4567-e89b-12d3-a456-426614174000",
+                                "filename": "sample.pdf",
+                                "file_type": ".pdf",
+                                "file_size": 1024000,
+                                "created_at": "2025-08-02T10:30:00Z",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Conversation not found",
+            "content": {
+                "application/json": {"example": {"detail": "Conversation not found"}}
+            },
+        },
+    },
+)
+async def get_conversation_documents(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get all documents attached to a conversation"""
+    # Verify conversation exists and belongs to user
+    conversation = (
+        db.query(Conversation)
+        .filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == str(current_user.id),
+        )
+        .first()
+    )
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    documents = document_service.get_conversation_documents(conversation_id, db)
+    return {"documents": documents}
+
+
+@router.delete(
+    "/documents/{document_id}",
+    summary="Delete document",
+    description="Delete a document and remove it from the RAG system",
+    responses={
+        200: {
+            "description": "Document deleted successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": "Document deleted successfully",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Document not found or access denied",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Document not found or access denied"}
+                }
+            },
+        },
+    },
+)
+async def delete_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Delete a document"""
+    return document_service.delete_document(document_id, str(current_user.id), db)

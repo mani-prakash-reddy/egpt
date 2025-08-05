@@ -81,7 +81,7 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    organization_id = Column(String, ForeignKey("organizations.id"), nullable=False)
+    organization_id = Column(String, ForeignKey("organizations.id"), nullable=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     filename = Column(String, nullable=False)
     file_path = Column(String)

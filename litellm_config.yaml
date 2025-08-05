@@ -4,6 +4,16 @@ model_list:
       model: gpt-4o
       # api_base: os.environ/OPENAI_API_BASE
       api_key: "os.environ/OPENAI_API_KEY"
+    
+  - model_name: text-embedding-ada-002
+    litellm_params:
+      model: text-embedding-ada-002
+      # api_base: os.environ/OPENAI_API_BASE
+      api_key: "os.environ/OPENAI_API_KEY"
+    model_info:
+      id: string
+      mode: embedding
+      base_model: text-embedding-ada-002
 
   - model_name: gpt-4o-mini
     litellm_params:
