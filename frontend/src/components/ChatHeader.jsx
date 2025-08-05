@@ -207,13 +207,13 @@ const ChatHeader = ({ selectedModel, onModelChange }) => {
 							) : (
 								Object.entries(providers).map(([provider, models]) => (
 									<SelectGroup key={provider}>
-										<SelectLabel className="capitalize">{provider}</SelectLabel>
+										<SelectLabel className="capitalize text-white">{provider}</SelectLabel>
 										{models.map((model) => (
 											<SelectItem
 												key={model.id}
 												value={model.id}
 												className="cursor-pointer">
-												<div className="flex flex-col">
+												<div className="flex flex-col text-white pl-2">
 													<span>{model.name}</span>
 													{model.description && (
 														<span className="text-xs">

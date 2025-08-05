@@ -384,7 +384,7 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 						</div>
 
 						{/* Feature Cards */}
-						<div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+						{/* <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
 							<Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
 								<CardContent className="text-center space-y-2 p-0">
 									<MessageSquare className="h-8 w-8 mx-auto text-blue-500" />
@@ -420,7 +420,7 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 									</p>
 								</CardContent>
 							</Card>
-						</div>
+						</div> */}
 					</div>
 				</div>
 			)}
@@ -890,7 +890,7 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 			<Separator />
 
 			{/* Input Area */}
-			<div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 p-4 bg-neutral-900/80 backdrop-blur-lm w-7/12 rounded-lg border border-neutral-700/50 shadow-2xl">
+			<div className="fixed bottom-4 left-1/2 transform -translate-x-2/5 p-4 bg-neutral-900/80 backdrop-blur-lm w-7/12 rounded-lg border border-neutral-700/50 shadow-2xl">
 				{/* Tools Selection */}
 				{availableTools.length > 0 && (
 					<div className="mb-4">
