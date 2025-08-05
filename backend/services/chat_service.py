@@ -4,10 +4,13 @@ from database.db_models import Conversation, Message
 from tools import web_search
 from tools.information_retriever import (
     information_retriever,
-    search_query,
+    # search_query,
 )
+from pydantic import BaseModel, Field
 from langchain.tools import Tool
+from langchain_core.tools import tool
 from .openai_provider import OpenAIProvider
+from .embedding_provider import RAGService
 
 llm_providers = {
     "E Gpt": OpenAIProvider,
@@ -79,18 +82,39 @@ class ChatService:
         if tool_names:
             for tool_name in tool_names:
                 if tool_name == "information_retriever" and conversation_id:
+                    @tool
+                    def information_retriever(query: str) -> str:
+                            """
+                            Retrieve information based on the provided query from the documents uploaded in the current conversation.
+                            This tool searches through documents that have been attached to the conversation.
 
-                    def retriever_with_conversation_id(query_text: str) -> str:
-                        """Search for information in the documents attached to this conversation."""
-                        query = search_query(
-                            query=query_text, conversation_id=conversation_id
-                        )
-                        return information_retriever(query)
+                            Args:
+                                query: The search query to retrieve information.
+                            Returns:
+                                The retrieved information as a string.
+                            """
+                            try:
+                                rag_service = RAGService()
+                                docs = rag_service.search_documents(query, conversation_id, k=3)
+
+                                if not docs:
+                                    return "No relevant information found in the uploaded documents."
+
+                                result = f"""<details closed>
+    <summary>Documents search: `{query}`</summary>
+                                """
+                                for i, doc in enumerate(docs, 1):
+                                    result += f"\n{doc.page_content}\n\n"
+                                result += "</details>"
+
+                                return result
+                            except Exception as e:
+                                return f"Error retrieving information: {str(e)}"
 
                     # Create a tool with the wrapper function
                     retriever_tool = Tool(
                         name="information_retriever",
-                        func=retriever_with_conversation_id,
+                        func=information_retriever,
                         description="Search for information in documents uploaded to this conversation",
                     )
                     selected_tools.append(retriever_tool)
