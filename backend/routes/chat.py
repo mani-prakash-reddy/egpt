@@ -235,7 +235,7 @@ async def get_available_tools(
                 }
             },
             "headers": {
-                "X-Conversation-ID": {
+                "x-conversation-id": {
                     "description": "ID of the conversation",
                     "schema": {
                         "type": "string",
@@ -307,7 +307,7 @@ async def chat_stream(
         return StreamingResponse(
             generate_with_headers(),
             media_type="text/stream; charset=utf-8",
-            headers={"X-Conversation-ID": final_conversation_id},
+            headers={"x-conversation-id": final_conversation_id},
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

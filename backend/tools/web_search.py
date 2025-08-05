@@ -1,4 +1,4 @@
-from langchain_community.tools import DuckDuckGoSearchResults
+from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import tool
 
 @tool
@@ -13,8 +13,8 @@ def web_search(query: str) -> str:
             str: A string containing the search results.
     """
     print(f"Performing web search for query: `{query}`")
-    search = DuckDuckGoSearchResults()
-    results = search.run(query)
+    search = DuckDuckGoSearchRun()
+    results = search.invoke(query)
 
     return f"""<details closed>
     <summary>Web search: `{query}`</summary>

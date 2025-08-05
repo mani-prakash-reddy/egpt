@@ -153,7 +153,8 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 
 		// Create a new AbortController for this request
 		abortControllerRef.current = new AbortController();
-
+		let conversationIdFromResponse = null;
+		
 		try {
 			// Create the chat request data with conversation ID if available
 			const chatData = {
@@ -175,7 +176,7 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 			});
 
 			// Get conversation ID from headers
-			const conversationIdFromResponse = response.headers.get("X-Conversation-ID");
+			conversationIdFromResponse = response.headers.get("x-conversation-id");
 			console.log("X-Conversation-ID from response:", conversationIdFromResponse);
 
 			// Store the ID locally first, don't call onSelectConversation yet
@@ -200,7 +201,6 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 				}
 
 				const chunk = decoder.decode(value);
-				console.log("Received chunk:", chunk);
 
 				// Try to handle different streaming formats
 				if (chunk.includes("data: ")) {
@@ -284,11 +284,12 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 			);
 
 			// NOW update the conversation ID after streaming is complete
-			if (newConversationId) {
+			if (conversationIdFromResponse) {
 				setTimeout(() => {
-					onSelectConversation(newConversationId);
+					onSelectConversation(conversationIdFromResponse);
 				}, 100);
 			}
+			console.log("Streaming complete, conversation ID set:", conversationIdFromResponse);
 		}
 	};
 

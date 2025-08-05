@@ -68,7 +68,6 @@ class OpenAIProvider:
             builder.add_node("tools", self.tool_node)
 
             # Define routing logic
-            # Define routing logic
             def should_continue(state: MessagesState):
                 last_message = state["messages"][-1]
                 # Check if it's an AIMessage and has additional_kwargs with tool_calls
@@ -105,6 +104,7 @@ class OpenAIProvider:
             # Create or use thread_id for persistence
             thread_id = conversation_id or str(uuid.uuid4())
             config = {"configurable": {"thread_id": thread_id}}
+
             # Prepare messages
             system_prompt = "You are a helpful assistant. Please provide accurate and concise responses."
             messages = []
@@ -127,24 +127,25 @@ class OpenAIProvider:
 
             # Add the current prompt
             messages.append(HumanMessage(content=prompt))
+
             # Create proper state object for LangGraph
             state = {"messages": messages}
 
-            # Stream from the graph
+            # Stream from the graph - change to "messages" mode for token-by-token streaming
             async for chunk in self.graph.astream(
                 state,
-                config=config, # type: ignore
-                stream_mode="values",  # Stream token-by-token messages
+                config=config,
+                stream_mode="messages",  # Use messages mode for token streaming
             ):
-                # Process the chunk to extract just the text content
-                if isinstance(chunk, dict) and "messages" in chunk:
-                    # This handles full message updates
-                    yield chunk["messages"][-1].content
-                elif isinstance(chunk, AIMessage) and hasattr(chunk, "content"):
-                    # This handles token-by-token streaming
+                # In messages mode, each chunk is a tuple of (message_chunk, metadata)
+                if isinstance(chunk, tuple) and len(chunk) == 2:
+                    msg, metadata = chunk
+                    # Only yield if the message has content
+                    if hasattr(msg, "content") and msg.content:
+                        yield msg.content
+                # Fallback handling for other chunk formats
+                elif hasattr(chunk, "content") and chunk.content:
                     yield chunk.content
-                    # This handles token-by-token streaming
-                    yield chunk.content # type: ignore
 
         except Exception as e:
             print(f"Error in streaming response: {e}")

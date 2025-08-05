@@ -13,7 +13,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Conversation-ID"],
+    expose_headers=["x-conversation-id"],
 )
 
 # create tables
