@@ -6,6 +6,7 @@ from tools.information_retriever import (
     information_retriever,
     # search_query,
 )
+from uuid import uuid4
 from pydantic import BaseModel, Field
 from langchain.tools import Tool
 from langchain_core.tools import tool
@@ -82,34 +83,37 @@ class ChatService:
         if tool_names:
             for tool_name in tool_names:
                 if tool_name == "information_retriever" and conversation_id:
+
                     @tool
                     def information_retriever(query: str) -> str:
-                            """
-                            Retrieve information based on the provided query from the documents uploaded in the current conversation.
-                            This tool searches through documents that have been attached to the conversation.
+                        """
+                        Retrieve information based on the provided query from the documents uploaded in the current conversation.
+                        This tool searches through documents that have been attached to the conversation.
 
-                            Args:
-                                query: The search query to retrieve information.
-                            Returns:
-                                The retrieved information as a string.
-                            """
-                            try:
-                                rag_service = RAGService()
-                                docs = rag_service.search_documents(query, conversation_id, k=3)
+                        Args:
+                            query: The search query to retrieve information.
+                        Returns:
+                            The retrieved information as a string.
+                        """
+                        try:
+                            rag_service = RAGService()
+                            docs = rag_service.search_documents(
+                                query, conversation_id, k=3
+                            )
 
-                                if not docs:
-                                    return "No relevant information found in the uploaded documents."
+                            if not docs:
+                                return "No relevant information found in the uploaded documents."
 
-                                result = f"""<details closed>
+                            result = f"""<details closed>
     <summary>Documents search: `{query}`</summary>
                                 """
-                                for i, doc in enumerate(docs, 1):
-                                    result += f"\n{doc.page_content}\n\n"
-                                result += "</details>"
+                            for i, doc in enumerate(docs, 1):
+                                result += f"\n{doc.page_content}\n\n"
+                            result += "</details>"
 
-                                return result
-                            except Exception as e:
-                                return f"Error retrieving information: {str(e)}"
+                            return result
+                        except Exception as e:
+                            return f"Error retrieving information: {str(e)}"
 
                     # Create a tool with the wrapper function
                     retriever_tool = Tool(
@@ -177,10 +181,28 @@ class ChatService:
             raise
 
     def create_conversation(
-        self, db: Session, user_id: str, title: Optional[str] = None
+        self,
+        db: Session,
+        user_id: str,
+        title: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> Conversation:
-        """Create a new conversation"""
+        """Create a new conversation with optional client-provided ID"""
         try:
+            # Check if conversation with this ID already exists
+            if conversation_id:
+                existing_conversation = (
+                    db.query(Conversation)
+                    .filter(
+                        Conversation.id == conversation_id,
+                        Conversation.user_id == user_id,
+                    )
+                    .first()
+                )
+
+                if existing_conversation:
+                    return existing_conversation
+
             # Get user to determine organization_id
             from database.db_models import User
 
@@ -188,8 +210,10 @@ class ChatService:
             organization_id = user.organization_id if user else None
 
             conversation = Conversation(
+                id=conversation_id
+                or str(uuid4()),  # Use provided ID or generate new one
                 user_id=user_id,
-                organization_id=organization_id,  # Use user's organization or None for individual users
+                organization_id=organization_id,
                 title=title or "New Conversation",
             )
             db.add(conversation)
@@ -277,12 +301,19 @@ class ChatService:
             # Parse model string
             provider_name, model_name = self.parse_model_string(model_string)
 
-            # Get conversation history
+            # Get conversation history if conversation exists, or create conversation if ID provided
             conversation_history = []
-            if conversation_id:
+            if conversation_id and user_id:
+                # Get or create conversation with the provided ID
+                conversation = self.create_conversation(
+                    db, user_id=user_id, conversation_id=conversation_id
+                )
+                conversation_id = str(conversation.id)
+                self._last_conversation_id = conversation_id
                 conversation_history = self.get_chat_history(db, conversation_id)
-            elif user_id:
-                # Create a new conversation with a meaningful title based on the prompt
+            elif user_id and not conversation_id:
+                # No ID provided but we have user_id - this shouldn't happen with new flow
+                # but keeping as fallback
                 title = self.generate_conversation_title(prompt)
                 conversation = self.create_conversation(
                     db, user_id=user_id, title=title
@@ -295,7 +326,7 @@ class ChatService:
                 provider_name,
                 model_name,
                 tool_names,
-                conversation_id,  # Pass conversation_id to get_provider_instance
+                conversation_id,
             )
 
             # Save user message if conversation_id is available

@@ -53,10 +53,22 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 	const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
 	const [isUploadingDocument, setIsUploadingDocument] = useState(false);
 	const [uploadError, setUploadError] = useState(null);
+	// New state for pending files
+	const [pendingFiles, setPendingFiles] = useState([]);
 
 	const messagesEndRef = useRef(null);
 	const abortControllerRef = useRef(null);
 	const fileInputRef = useRef(null);
+
+	// Generate a new conversation ID if none exists
+	useEffect(() => {
+		if (!currentConversationId && selectedModel) {
+			// Generate a UUID for the new conversation
+			const newConversationId = uuidv4();
+			console.log("Generated new conversation ID:", newConversationId);
+			onSelectConversation(newConversationId);
+		}
+	}, [currentConversationId, selectedModel, onSelectConversation]);
 
 	useEffect(() => {
 		loadAvailableTools();
@@ -83,11 +95,11 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 	// Load documents attached to the current conversation
 	const loadConversationDocuments = async (conversationId) => {
 		if (!conversationId) return;
-		
+
 		try {
 			setIsLoadingDocuments(true);
 			const response = await ApiService.getConversationDocuments(conversationId);
-			
+
 			// Handle different response formats
 			let documentsList = [];
 			if (Array.isArray(response)) {
@@ -98,12 +110,12 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 				console.warn("Unexpected documents response format:", response);
 				documentsList = [];
 			}
-			
+
 			setDocuments(documentsList);
 		} catch (error) {
 			console.error("Failed to load conversation documents:", error);
-			
-			// Don't show error toast for new conversations that might not have the endpoint yet
+
+			// Don't show error toast for new conversations that might not have documents yet
 			if (error.message && !error.message.includes("404")) {
 				toast({
 					title: "Note",
@@ -111,8 +123,7 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 					variant: "default",
 				});
 			}
-			
-			// Set empty documents list on error
+
 			setDocuments([]);
 		} finally {
 			setIsLoadingDocuments(false);
@@ -124,55 +135,42 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 		fileInputRef.current?.click();
 	};
 
-	// Handle file selection
-	const handleFileChange = async (e) => {
-		const file = e.target.files?.[0];
-		if (!file || !currentConversationId) return;
+	// Modified: Store files instead of uploading immediately
+	const handleFileChange = (e) => {
+		const files = Array.from(e.target.files || []);
+		if (files.length > 0) {
+			setPendingFiles((prev) => [...prev, ...files]);
+			// Reset the file input
+			e.target.value = null;
 
-		// Reset file input to allow selecting the same file again
-		e.target.value = null;
-
-		await uploadFile(file);
+			toast({
+				title: "Files added",
+				description: `${files.length} file(s) will be uploaded when you send a message`,
+				variant: "default",
+			});
+		}
 	};
 
-	// Upload file to conversation
+	// Remove a pending file
+	const removePendingFile = (index) => {
+		setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+	};
+
+	// Modified: Upload a single file
 	const uploadFile = async (file) => {
 		if (!currentConversationId) {
-			toast({
-				title: "Error",
-				description: "Please start a conversation first",
-				variant: "destructive",
-			});
-			return;
+			throw new Error("No conversation ID available");
 		}
 
 		try {
-			setIsUploadingDocument(true);
-			setUploadError(null);
-
 			const response = await ApiService.uploadDocumentToConversation(
 				currentConversationId,
 				file
 			);
-
-			// Reload documents to get the updated list
-			await loadConversationDocuments(currentConversationId);
-
-			toast({
-				title: "Success",
-				description: `${file.name} uploaded successfully`,
-				variant: "default",
-			});
+			return response;
 		} catch (error) {
 			console.error("Failed to upload document:", error);
-			setUploadError(error.message);
-			toast({
-				title: "Upload Failed",
-				description: error.message || "Failed to upload document",
-				variant: "destructive",
-			});
-		} finally {
-			setIsUploadingDocument(false);
+			throw error;
 		}
 	};
 
@@ -260,11 +258,62 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 		}
 	};
 
+	// Modified: Upload pending files before sending message
 	const handleSendMessage = async (e) => {
 		e.preventDefault();
 
 		if (!inputMessage.trim() || !selectedModel || isStreaming) {
 			return;
+		}
+
+		// Ensure we have a conversation ID
+		if (!currentConversationId) {
+			const newConversationId = uuidv4();
+			onSelectConversation(newConversationId);
+			await new Promise((resolve) => setTimeout(resolve, 100)); // Small delay for state to update
+		}
+
+		// Upload pending files first if we have any
+		if (pendingFiles.length > 0 && currentConversationId) {
+			setIsUploadingDocument(true);
+			setUploadError(null);
+
+			try {
+				// Show toast for uploading files
+				toast({
+					title: "Uploading files",
+					description: `Uploading ${pendingFiles.length} file(s)...`,
+					variant: "default",
+				});
+
+				// Upload all pending files
+				for (const file of pendingFiles) {
+					await uploadFile(file);
+				}
+
+				// Clear pending files after successful upload
+				setPendingFiles([]);
+
+				// Reload documents to get the updated list
+				await loadConversationDocuments(currentConversationId);
+
+				toast({
+					title: "Success",
+					description: "All files uploaded successfully",
+					variant: "default",
+				});
+			} catch (error) {
+				console.error("Failed to upload pending files:", error);
+				setUploadError(error.message);
+				toast({
+					title: "Upload Failed",
+					description: error.message || "Some files failed to upload",
+					variant: "destructive",
+				});
+				return; // Don't proceed with sending the message if uploads failed
+			} finally {
+				setIsUploadingDocument(false);
+			}
 		}
 
 		const userMessage = {
@@ -289,14 +338,13 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 
 		// Create a new AbortController for this request
 		abortControllerRef.current = new AbortController();
-		let conversationIdFromResponse = null;
 
 		try {
-			// Create the chat request data with conversation ID if available
+			// Create the chat request data with conversation ID
 			const chatData = {
 				prompt: userMessage.content,
 				model: selectedModel,
-				conversation_id: currentConversationId || null,
+				conversation_id: currentConversationId,
 				tools: selectedTools.length > 0 ? selectedTools : undefined,
 			};
 
@@ -312,16 +360,16 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 			});
 
 			// Get conversation ID from headers
-			conversationIdFromResponse = response.headers.get("x-conversation-id");
-			console.log("X-Conversation-ID from response:", conversationIdFromResponse);
+			// conversationIdFromResponse = response.headers.get("x-conversation-id");
+			// console.log("X-Conversation-ID from response:", conversationIdFromResponse);
 
 			// Store the ID locally first, don't call onSelectConversation yet
-			let newConversationId = null;
-			if (conversationIdFromResponse && !currentConversationId) {
-				console.log("Setting new conversation ID:", conversationIdFromResponse);
-				newConversationId = conversationIdFromResponse;
-				// We'll call onSelectConversation AFTER streaming is complete
-			}
+			// let newConversationId = null;
+			// if (conversationIdFromResponse && !currentConversationId) {
+			// 	console.log("Setting new conversation ID:", conversationIdFromResponse);
+			// 	newConversationId = conversationIdFromResponse;
+			// 	// We'll call onSelectConversation AFTER streaming is complete
+			// }
 
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
@@ -408,29 +456,13 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 				)
 			);
 		} finally {
-			// Important: Make sure to check if the current conversation ID is set
-			console.log("Final conversation ID after request:", currentConversationId);
 			setIsStreaming(false);
-
 			// Update the assistant message to mark streaming as complete
 			setMessages((prev) =>
 				prev.map((msg) =>
 					msg.id === assistantMessage.id ? { ...msg, isStreaming: false } : msg
 				)
 			);
-
-			// NOW update the conversation ID after streaming is complete
-			if (conversationIdFromResponse) {
-				setTimeout(() => {
-					onSelectConversation(conversationIdFromResponse);
-
-					// Load documents for the new conversation
-					if (!currentConversationId) {
-						loadConversationDocuments(conversationIdFromResponse);
-					}
-				}, 100);
-			}
-			console.log("Streaming complete, conversation ID set:", conversationIdFromResponse);
 		}
 	};
 
@@ -512,8 +544,8 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 
 	return (
 		<div className="flex-1 flex flex-col h-full">
-			{/* Welcome Section - shown when no conversation */}
-			{!currentConversationId && messages.length === 0 && (
+			{/* Welcome Section - shown when no messages */}
+			{messages.length === 0 && (
 				<div className="flex-1 flex flex-col items-center justify-center p-8">
 					<div className="max-w-2xl w-full text-center space-y-6">
 						<div className="space-y-2">
@@ -1095,6 +1127,37 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 					</div>
 				)}
 
+				{/* NEW: Pending Files Section */}
+				{pendingFiles.length > 0 && (
+					<div className="mb-4">
+						<div className="flex items-center gap-2 mb-2">
+							<Paperclip className="h-4 w-4 text-yellow-500" />
+							<span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+								Pending Uploads:
+							</span>
+						</div>
+						<div className="flex flex-wrap gap-2">
+							{pendingFiles.map((file, index) => (
+								<div
+									key={index}
+									className="flex items-center gap-1 bg-yellow-500/20 text-yellow-200 text-xs px-2 py-1 rounded-md">
+									<File className="h-3 w-3" />
+									<span className="max-w-[120px] truncate">{file.name}</span>
+									<button
+										className="text-neutral-400 hover:text-red-500 transition-colors"
+										onClick={() => removePendingFile(index)}
+										title="Remove file">
+										<X className="h-3 w-3" />
+									</button>
+								</div>
+							))}
+						</div>
+						<p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+							Files will be uploaded when you send a message
+						</p>
+					</div>
+				)}
+
 				{/* Upload error message */}
 				{uploadError && <div className="mb-4 text-red-500 text-xs">{uploadError}</div>}
 
@@ -1105,7 +1168,7 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 							value={inputMessage}
 							onChange={(e) => setInputMessage(e.target.value)}
 							placeholder={`Message ${getModelDisplayName()}...`}
-							disabled={isStreaming}
+							disabled={isStreaming || isUploadingDocument}
 							className="resize-none"
 							autoFocus
 						/>
@@ -1122,9 +1185,13 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 					) : (
 						<Button
 							type="submit"
-							disabled={!inputMessage.trim() || !selectedModel}
+							disabled={!inputMessage.trim() || !selectedModel || isUploadingDocument}
 							size="sm">
-							<Send className="h-4 w-4" />
+							{isUploadingDocument ? (
+								<Loader2 className="h-4 w-4 animate-spin" />
+							) : (
+								<Send className="h-4 w-4" />
+							)}
 						</Button>
 					)}
 
@@ -1134,7 +1201,7 @@ const ChatCanvas = ({ selectedModel, currentConversationId, onNewChat, onSelectC
 						onClick={handleFileButtonClick}
 						variant="outline"
 						size="sm"
-						disabled={isStreaming}
+						disabled={isStreaming || isUploadingDocument}
 						className="flex-shrink-0">
 						<Paperclip className="h-4 w-4" />
 					</Button>
