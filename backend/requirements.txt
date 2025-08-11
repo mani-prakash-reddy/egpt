@@ -23,3 +23,7 @@ pyjwt
 passlib[bcrypt]
 bcrypt==4.0.1
 ollama
+pandas
+plotly
+beautifulsoup4
+markdownify

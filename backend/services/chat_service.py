@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional, AsyncGenerator
 from sqlalchemy.orm import Session
 from database.db_models import Conversation, Message
-from tools import web_search
+from tools import web_search, plot_tool
 from tools.information_retriever import (
     information_retriever,
     # search_query,
@@ -19,6 +19,7 @@ llm_providers = {
 tools = {
     "web_search": web_search,
     "information_retriever": information_retriever,
+    "plot_tool": plot_tool,
 }
 
 
